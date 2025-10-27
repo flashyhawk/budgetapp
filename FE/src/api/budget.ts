@@ -1,0 +1,61 @@
+import { request } from './client';
+import type {
+  CashBook,
+  Expense,
+  ExpenseGroup,
+  ExpensesQuery,
+  MonthlyPlan,
+  PlannedVsActualRow,
+  Summary,
+  CreateExpenseInput,
+  CreateExpenseGroupInput,
+  SaveMonthlyPlanInput,
+  SaveCashBookInput,
+} from './types';
+
+export const getSummary = () => request<Summary>('/api/summary');
+
+export const getCashBooks = () => request<CashBook[]>('/api/cash-books');
+
+export const getExpenseGroups = () => request<ExpenseGroup[]>('/api/expense-groups');
+
+export const getMonthlyPlans = () => request<MonthlyPlan[]>('/api/monthly-plans');
+
+export const getCurrentMonthlyPlan = () => request<MonthlyPlan>('/api/monthly-plans/current');
+
+export const getPlanHistory = () => request<MonthlyPlan[]>('/api/monthly-plans/history');
+
+export const getExpenses = (filters: ExpensesQuery = {}) =>
+  request<Expense[]>('/api/expenses', { params: filters });
+
+export const createExpense = (payload: CreateExpenseInput) =>
+  request<Expense>('/api/expenses', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const getPlannedVsActual = () => request<PlannedVsActualRow[]>('/api/reports/planned-vs-actual');
+
+export const createExpenseGroup = (payload: CreateExpenseGroupInput) =>
+  request<ExpenseGroup>('/api/expense-groups', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const createMonthlyPlan = (payload: SaveMonthlyPlanInput) =>
+  request<MonthlyPlan>('/api/monthly-plans', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const updateMonthlyPlan = (id: string, payload: SaveMonthlyPlanInput) =>
+  request<MonthlyPlan>(`/api/monthly-plans/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+export const createCashBook = (payload: SaveCashBookInput) =>
+  request<CashBook>('/api/cash-books', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });

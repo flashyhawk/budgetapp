@@ -1,0 +1,50 @@
+[
+  {
+    "id": "27fac3be-5760-404e-8a97-2db0e1b7bd46",
+    "label": "grocery",
+    "amount": 200,
+    "type": "expense",
+    "groupId": "b5aacedb-804b-4c88-a2eb-8dbb3a27e69b",
+    "cashBookId": "d2e41833-0690-4cc1-8fda-f64075dfc23a",
+    "date": "2025-10-26",
+    "note": "",
+    "tags": [],
+    "createdAt": "2025-10-26T17:27:28.947Z"
+  },
+  {
+    "id": "f9c3b900-f6f4-4067-9e3e-b7ce90ea9e0c",
+    "label": "Jessy fever",
+    "amount": 1000,
+    "type": "expense",
+    "groupId": "c64524cc-04db-4004-abd7-9e06bf6e6341",
+    "cashBookId": "4a679681-2c1c-4893-950a-a47950e45fd1",
+    "date": "2025-10-26",
+    "note": "",
+    "tags": [],
+    "createdAt": "2025-10-26T17:39:07.160Z"
+  },
+  {
+    "id": "4befe3c7-ab2e-48d8-b988-fd824bc8c092",
+    "label": "Muttai",
+    "amount": 250,
+    "type": "expense",
+    "groupId": "b5aacedb-804b-4c88-a2eb-8dbb3a27e69b",
+    "cashBookId": "4a679681-2c1c-4893-950a-a47950e45fd1",
+    "date": "2025-10-26",
+    "note": "",
+    "tags": [],
+    "createdAt": "2025-10-26T17:47:33.274Z"
+  },
+  {
+    "id": "3b401147-b067-49d9-9e03-00e5cf1dff8b",
+    "label": "G pay",
+    "amount": 170,
+    "type": "expense",
+    "groupId": "419f2fc4-a72e-4670-8aee-12926c9ea78d",
+    "cashBookId": "d2e41833-0690-4cc1-8fda-f64075dfc23a",
+    "date": "2025-10-26",
+    "note": "G pay",
+    "tags": [],
+    "createdAt": "2025-10-26T17:47:34.295Z"
+  }
+]
