@@ -125,15 +125,12 @@ const CashBooksPage: FC = () => {
   return (
     <div className="page">
       <section className="card">
-        <header className="card-header">
-          <h2 className="card-title">Cash books overview</h2>
-          <span className="badge badge-soft">
-            Total {formatCurrency(totalBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        <div className="metric">
+          <span className="metric-label">Total across cash books</span>
+          <span className="metric-value">
+            {formatCurrency(totalBalance, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-        </header>
-        <p className="card-subtitle">
-          Keep all your accounts aligned. Balances update automatically when you add income or expenses.
-        </p>
+        </div>
       </section>
 
       <section className="card">
@@ -269,29 +266,6 @@ const CashBooksPage: FC = () => {
             </div>
           )}
         </form>
-      </section>
-
-      <section className="card">
-        <header className="card-header">
-          <h2 className="card-title">Transfers (coming soon)</h2>
-        </header>
-        <p className="card-subtitle">
-          Plan to move funds between cash books and keep your balances accurate. You will be able to schedule or log
-          transfers in the next release.
-        </p>
-        <div className="dashed-box">
-          <p className="item-title">Sneak peek</p>
-          <ul className="info-list">
-            <li>
-              <span>Instant transfer</span>
-              <strong>Select source and destination accounts</strong>
-            </li>
-            <li>
-              <span>Track reasons</span>
-              <strong>Attach notes for audit history</strong>
-            </li>
-          </ul>
-        </div>
       </section>
     </div>
   );

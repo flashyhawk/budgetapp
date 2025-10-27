@@ -56,18 +56,32 @@ const App: FC = () => {
   }, [location.pathname]);
 
   const handleNavigate = () => {
-    setSidebarOpen(false);
+    if (!prefersDesktop) {
+      setSidebarOpen(false);
+    }
+  };
+
+  const handleToggleSidebar = () => {
+    setSidebarOpen((open) => !open);
+  };
+
+  const handleCloseSidebar = () => {
+    if (!prefersDesktop) {
+      setSidebarOpen(false);
+    }
   };
 
   return (
     <div className={`app-root ${sidebarOpen ? 'sidebar-visible' : 'sidebar-hidden'}`}>
-      <AppHeader title={activeConfig.label} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+      <AppHeader title={activeConfig.label} onToggleSidebar={handleToggleSidebar} />
+      {!prefersDesktop && sidebarOpen && (
+        <button className="sidebar-backdrop" type="button" aria-label="Close menu" onClick={handleCloseSidebar} />
+      )}
       <div className="app-shell">
         <aside id="main-sidebar" className={`sidebar ${sidebarOpen ? '' : 'sidebar-collapsed'}`}>
           <div className="sidebar-header">
-            <span className="sidebar-badge">Budget app</span>
-            <h1 className="sidebar-title">Home Budget</h1>
-            <p className="sidebar-subtitle">Balance every rupee with clarity.</p>
+            <h1 className="sidebar-title">Together Track</h1>
+            <p className="sidebar-subtitle">Love, life, and expenses—all in sync.</p>
           </div>
           <nav className="sidebar-nav" aria-label="Primary navigation">
             {pages.map((page) => (
@@ -82,9 +96,9 @@ const App: FC = () => {
             ))}
           </nav>
           <div className="sidebar-footer">
-            <p>Need a new feature?</p>
+            <p>Done with love</p>
             <button className="ghost-button" type="button">
-              Share feedback
+              Kala & Suresh 🥰
             </button>
           </div>
         </aside>

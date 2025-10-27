@@ -26,5 +26,15 @@
       "label": "Muttai",
       "amount": -250
     }
+  },
+  {
+    "id": "a2e16ffc-4a28-4a66-a0af-ef7286c4ea83",
+    "name": "IOB",
+    "type": "bank",
+    "accountNumber": "",
+    "balance": 0,
+    "currency": "INR",
+    "notes": "",
+    "lastActivity": null
   }
 ]

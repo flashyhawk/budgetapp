@@ -33,18 +33,10 @@ const MonthlyPlannerPage: FC = () => {
     savingsTarget: '',
     locked: false,
     currency: 'INR',
-    budgets: {} as Record<string, string>,
   });
   const [actuals, setActuals] = useState<{ total: number; byGroup: Record<string, number> }>({ total: 0, byGroup: {} });
-
-  const computeBudgetInputs = (plan: MonthlyPlan | null, sourceGroups: ExpenseGroup[]) => {
-    const budgetInputs: Record<string, string> = {};
-    sourceGroups.forEach((group) => {
-      const entry = plan?.budgets.find((item) => item.groupId === group.id);
-      budgetInputs[group.id] = entry ? String(entry.planned ?? 0) : '';
-    });
-    return budgetInputs;
-  };
+  const [planBudgets, setPlanBudgets] = useState<Array<{ groupId: string; planned: string }>>([]);
+  const [groupToAdd, setGroupToAdd] = useState<string>('');
 
   useEffect(() => {
     const currentMonthKey = new Date().toISOString().slice(0, 7);
@@ -65,6 +57,12 @@ const MonthlyPlannerPage: FC = () => {
           const plan = defaultPlan ?? null;
           setSelectedPlanId(plan.id);
           setSelectedPlan(plan);
+          setPlanBudgets(
+            plan.budgets.map((budget) => ({
+              groupId: budget.groupId,
+              planned: String(budget.planned ?? 0),
+            })),
+          );
           setForm({
             month: plan.month ?? '',
             cycleStart: plan.cycleStart ?? '',
@@ -72,11 +70,11 @@ const MonthlyPlannerPage: FC = () => {
             savingsTarget: plan.savingsTarget ? String(plan.savingsTarget) : '',
             locked: plan.locked ?? false,
             currency: plan.currency ?? 'INR',
-            budgets: computeBudgetInputs(plan, groupResponse),
           });
         } else {
           setSelectedPlanId('new');
           setSelectedPlan(null);
+          setPlanBudgets([]);
           setForm({
             month: currentMonthKey,
             cycleStart: '',
@@ -84,7 +82,6 @@ const MonthlyPlannerPage: FC = () => {
             savingsTarget: '',
             locked: false,
             currency: 'INR',
-            budgets: computeBudgetInputs(null, groupResponse),
           });
         }
       } catch (_err) {
@@ -99,14 +96,6 @@ const MonthlyPlannerPage: FC = () => {
       mounted = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!groups.length) return;
-    setForm((prev) => ({
-      ...prev,
-      budgets: computeBudgetInputs(selectedPlan, groups),
-    }));
-  }, [groups, selectedPlan]);
 
   useEffect(() => {
     const cycleMonth = selectedPlan?.month ?? form.month;
@@ -147,6 +136,7 @@ const MonthlyPlannerPage: FC = () => {
     if (planId === 'new') {
       setSelectedPlanId('new');
       setSelectedPlan(null);
+      setPlanBudgets([]);
       setForm({
         month: new Date().toISOString().slice(0, 7),
         cycleStart: '',
@@ -154,13 +144,20 @@ const MonthlyPlannerPage: FC = () => {
         savingsTarget: '',
         locked: false,
         currency: 'INR',
-        budgets: computeBudgetInputs(null, groups),
       });
       return;
     }
     const plan = plans.find((item) => item.id === planId) ?? null;
     setSelectedPlanId(plan?.id ?? null);
     setSelectedPlan(plan);
+    setPlanBudgets(
+      plan
+        ? plan.budgets.map((budget) => ({
+            groupId: budget.groupId,
+            planned: String(budget.planned ?? 0),
+          }))
+        : [],
+    );
     setForm({
       month: plan?.month ?? '',
       cycleStart: plan?.cycleStart ?? '',
@@ -168,28 +165,93 @@ const MonthlyPlannerPage: FC = () => {
       savingsTarget: plan?.savingsTarget ? String(plan.savingsTarget) : '',
       locked: plan?.locked ?? false,
       currency: plan?.currency ?? 'INR',
-      budgets: computeBudgetInputs(plan, groups),
     });
   };
 
-  const totalPlanned = useMemo(
-    () => groups.reduce((sum, group) => sum + Number(form.budgets[group.id] || 0), 0),
-    [form.budgets, groups],
+  const selectedPlanBudgets = useMemo(() => {
+    if (!selectedPlan) return {} as Record<string, { planned: number; actual: number }>;
+    return selectedPlan.budgets.reduce(
+      (acc, budget) => {
+        acc[budget.groupId] = {
+          planned: budget.planned ?? 0,
+          actual: budget.actual ?? 0,
+        };
+        return acc;
+      },
+      {} as Record<string, { planned: number; actual: number }>,
+    );
+  }, [selectedPlan]);
+
+  const availableGroups = useMemo(
+    () => groups.filter((group) => !planBudgets.some((budget) => budget.groupId === group.id)),
+    [groups, planBudgets],
   );
 
-  const totalActual = actuals.total;
+  useEffect(() => {
+    if (!availableGroups.length) {
+      setGroupToAdd('');
+      return;
+    }
+    if (!availableGroups.some((group) => group.id === groupToAdd)) {
+      setGroupToAdd(availableGroups[0].id);
+    }
+  }, [availableGroups, groupToAdd]);
+
   const actualByGroup = actuals.byGroup;
 
-  const canSave = Boolean(form.month) && groups.length > 0;
+  const budgetRows = useMemo(
+    () =>
+      planBudgets.map((budget) => {
+        const group = groups.find((item) => item.id === budget.groupId);
+        const reference = selectedPlanBudgets[budget.groupId];
+        const plannedNumber = budget.planned !== '' ? Number(budget.planned) : reference?.planned ?? 0;
+        const actualValue = actualByGroup[budget.groupId] ?? reference?.actual ?? 0;
+        return {
+          ...budget,
+          name: group?.name ?? 'Removed group',
+          description: group?.description ?? (group ? 'No description provided' : 'This group is no longer available.'),
+          plannedNumber,
+          actualValue,
+        };
+      }),
+    [actualByGroup, groups, planBudgets, selectedPlanBudgets],
+  );
+
+  const totalPlanned = useMemo(
+    () => budgetRows.reduce((sum, budget) => sum + budget.plannedNumber, 0),
+    [budgetRows],
+  );
+
+  const handleAddGroupToPlan = () => {
+    if (!groupToAdd) return;
+    const group = groups.find((item) => item.id === groupToAdd);
+    const defaultValue =
+      group?.defaultMonthlyBudget !== undefined && group?.defaultMonthlyBudget !== null
+        ? String(group.defaultMonthlyBudget || 0)
+        : '';
+    setPlanBudgets((prev) => [...prev, { groupId: groupToAdd, planned: defaultValue }]);
+    setFormStatus(null);
+  };
+
+  const totalActual = actuals.total;
+
+  const canSave = Boolean(form.month) && planBudgets.length > 0;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!canSave) {
+    if (!form.month) {
+      setFormStatus({
+        type: 'error',
+        message: 'Please provide a plan month before saving.',
+      });
+      return;
+    }
+    if (!planBudgets.length) {
       setFormStatus({
         type: 'error',
         message: groups.length
-          ? 'Please provide a plan month before saving.'
-          : 'Add at least one expense group before creating a plan.',
+          ? 'Add at least one expense group to this plan before saving.'
+          : 'Create an expense group before building a plan.',
       });
       return;
     }
@@ -204,9 +266,9 @@ const MonthlyPlannerPage: FC = () => {
         locked: form.locked,
         currency: form.currency || 'INR',
         savingsTarget: form.savingsTarget ? Number(form.savingsTarget) : 0,
-        budgets: groups.map((group) => ({
-          groupId: group.id,
-          planned: Number(form.budgets[group.id] || 0),
+        budgets: planBudgets.map((budget) => ({
+          groupId: budget.groupId,
+          planned: budget.planned === '' ? 0 : Number(budget.planned),
         })),
       };
 
@@ -222,6 +284,12 @@ const MonthlyPlannerPage: FC = () => {
 
       setSelectedPlan(savedPlan);
       setSelectedPlanId(savedPlan.id ?? null);
+      setPlanBudgets(
+        savedPlan.budgets.map((budget) => ({
+          groupId: budget.groupId,
+          planned: String(budget.planned ?? 0),
+        })),
+      );
       setForm({
         month: savedPlan.month ?? '',
         cycleStart: savedPlan.cycleStart ?? '',
@@ -229,7 +297,6 @@ const MonthlyPlannerPage: FC = () => {
         savingsTarget: savedPlan.savingsTarget ? String(savedPlan.savingsTarget) : '',
         locked: savedPlan.locked ?? false,
         currency: savedPlan.currency ?? 'INR',
-        budgets: computeBudgetInputs(savedPlan, groups),
       });
       setFormStatus({
         type: 'success',
@@ -403,57 +470,110 @@ const MonthlyPlannerPage: FC = () => {
 
       <section className="card">
         <header className="card-header">
-          <h2 className="card-title">Budget by group</h2>
+          <h2 className="card-title">Expense groups</h2>
         </header>
         {groups.length ? (
           <form className="planner-form" onSubmit={handleSubmit}>
-            <div className="budget-list">
-              {groups.map((group) => {
-                const plannedValue = form.budgets[group.id] ?? '';
-                const actualValue = actualByGroup[group.id] ?? 0;
-                return (
-                  <div key={group.id} className="budget-row">
-                    <div>
-                      <p className="item-title">{group.name}</p>
-                      <p className="item-meta">{group.description ?? 'No description provided'}</p>
+            {budgetRows.length ? (
+              <>
+                <div className="budget-list">
+                  {budgetRows.map((budget) => (
+                    <div key={budget.groupId} className="budget-row">
+                      <div>
+                        <p className="item-title">{budget.name}</p>
+                        <p className="item-meta">{budget.description}</p>
+                      </div>
+                      <div className="budget-inputs">
+                        <label className="form-field">
+                          <span className="form-label">Planned</span>
+                          <input
+                            className="form-input"
+                            type="number"
+                            value={budget.planned}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setFormStatus(null);
+                              setPlanBudgets((prev) =>
+                                prev.map((entry) =>
+                                  entry.groupId === budget.groupId ? { ...entry, planned: value } : entry,
+                                ),
+                              );
+                            }}
+                          />
+                        </label>
+                        <div className="budget-metrics">
+                          <span className="item-meta">
+                            Planned {formatCurrency(budget.plannedNumber, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                          {selectedPlan && (
+                            <span className="item-meta">
+                              Actual {formatCurrency(budget.actualValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="budget-inputs">
-                      <label className="form-field">
-                        <span className="form-label">Planned</span>
-                        <input
-                          className="form-input"
-                          type="number"
-                          value={plannedValue}
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            setFormStatus(null);
-                            setForm((prev) => ({
-                              ...prev,
-                              budgets: {
-                                ...prev.budgets,
-                                [group.id]: value,
-                              },
-                            }));
-                          }}
-                        />
-                      </label>
-                      {selectedPlan && (
-                        <span className="item-meta">
-                          Actual {formatCurrency(actualValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      )}
-                    </div>
+                  ))}
+                </div>
+                {availableGroups.length > 0 && (
+                  <div className="plan-add-row">
+                    <select
+                      className="form-input plan-add-select"
+                      value={groupToAdd}
+                      onChange={(event) => setGroupToAdd(event.target.value)}
+                    >
+                      {availableGroups.map((group) => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="ghost-button small"
+                      type="button"
+                      onClick={handleAddGroupToPlan}
+                      disabled={!groupToAdd}
+                    >
+                      Add
+                    </button>
                   </div>
-                );
-              })}
-            </div>
+                )}
+              </>
+            ) : (
+              <p className="card-subtitle">
+                No expense groups added to this plan yet. Use the selector below to include one.
+              </p>
+            )}
+            {!budgetRows.length && availableGroups.length > 0 && (
+              <div className="plan-add-row">
+                <select
+                  className="form-input plan-add-select"
+                  value={groupToAdd}
+                  onChange={(event) => setGroupToAdd(event.target.value)}
+                >
+                  {availableGroups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="ghost-button small"
+                  type="button"
+                  onClick={handleAddGroupToPlan}
+                  disabled={!groupToAdd}
+                >
+                  Add
+                </button>
+              </div>
+            )}
             {formStatus && (
               <div className={`form-info ${formStatus.type === 'error' ? 'form-warning' : ''}`}>
                 <span>{formStatus.message}</span>
               </div>
             )}
             <button className="primary-button" type="submit" disabled={saving || !canSave}>
-              {saving ? 'Saving…' : selectedPlan ? 'Update plan' : 'Create plan'}
+              {saving ? 'Saving…' : 'Update plan'}
             </button>
           </form>
         ) : (
