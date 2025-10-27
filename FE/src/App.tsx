@@ -9,6 +9,7 @@ import ExpensesHistoryPage from './pages/ExpensesHistoryPage';
 import MonthlyPlannerPage from './pages/MonthlyPlannerPage';
 import ReportsPage from './pages/ReportsPage';
 import AppHeader from './components/AppHeader';
+import { resetData as resetBudgetData } from './api/budget';
 
 type PageId =
   | 'dashboard'
@@ -50,6 +51,7 @@ const App: FC = () => {
   const location = useLocation();
   const prefersDesktop = typeof window !== 'undefined' ? window.innerWidth > 900 : true;
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(prefersDesktop);
+  const [resetting, setResetting] = useState(false);
   const activeConfig = useMemo(() => {
     const match = pages.find((page) => location.pathname.startsWith(page.path));
     return match ?? pages[0];
@@ -68,6 +70,24 @@ const App: FC = () => {
   const handleCloseSidebar = () => {
     if (!prefersDesktop) {
       setSidebarOpen(false);
+    }
+  };
+
+  const handleResetData = async () => {
+    if (resetting) {
+      return;
+    }
+    const confirmed = window.confirm('This will delete all budget data and reset the app. Continue?');
+    if (!confirmed) {
+      return;
+    }
+    try {
+      setResetting(true);
+      await resetBudgetData();
+      window.location.reload();
+    } catch (_error) {
+      setResetting(false);
+      window.alert('Unable to reset data. Please try again.');
     }
   };
 
@@ -99,6 +119,14 @@ const App: FC = () => {
             <p>Done with love</p>
             <button className="ghost-button" type="button">
               Kala & Suresh 🥰
+            </button>
+            <button
+              className="ghost-button danger"
+              type="button"
+              onClick={handleResetData}
+              disabled={resetting}
+            >
+              {resetting ? 'Resetting...' : 'Reset app data'}
             </button>
           </div>
         </aside>

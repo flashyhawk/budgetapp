@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestVoid } from './client';
 import type {
   CashBook,
   Expense,
@@ -58,4 +58,9 @@ export const createCashBook = (payload: SaveCashBookInput) =>
   request<CashBook>('/api/cash-books', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+
+export const resetData = () =>
+  requestVoid('/api/reset', {
+    method: 'POST',
   });
