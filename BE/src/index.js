@@ -14,6 +14,7 @@ const {
   createExpenseGroup,
   saveMonthlyPlan,
   saveCashBook,
+  resetData,
 } = require('./services/budgetService');
 
 const PORT = process.env.PORT || 4000;
@@ -162,6 +163,15 @@ app.put('/api/monthly-plans/:id', async (req, res, next) => {
   try {
     const plan = await saveMonthlyPlan({ ...req.body, id: req.params.id });
     res.json(plan);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/reset', async (_req, res, next) => {
+  try {
+    await resetData();
+    res.json({ status: 'reset' });
   } catch (error) {
     next(error);
   }

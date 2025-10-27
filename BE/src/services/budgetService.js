@@ -31,13 +31,34 @@ async function getMonthlyPlans() {
 }
 
 async function getCurrentPlan() {
-  const [current] = await getMonthlyPlans();
-  return current ?? null;
+  const plans = await getMonthlyPlans();
+  if (!plans.length) {
+    return null;
+  }
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const currentMonth = todayKey.slice(0, 7);
+
+  const activeCycle = plans.find((plan) => isWithinRange(todayKey, plan.cycleStart, plan.cycleEnd));
+  if (activeCycle) {
+    return activeCycle;
+  }
+
+  const monthMatch = plans.find((plan) => plan.month === currentMonth);
+  if (monthMatch) {
+    return monthMatch;
+  }
+
+  return plans[0];
 }
 
 async function getPlanHistory() {
   const plans = await getMonthlyPlans();
-  return plans.slice(1);
+  const currentPlan = await getCurrentPlan();
+  if (!currentPlan) {
+    return plans;
+  }
+  return plans.filter((plan) => plan.id !== currentPlan.id);
 }
 
 async function getExpenses(filters = {}) {
@@ -290,6 +311,11 @@ async function saveCashBook(payload) {
   return normalized;
 }
 
+async function resetData() {
+  const datasets = ['cashBooks', 'expenseGroups', 'monthlyPlans', 'expenses'];
+  await Promise.all(datasets.map((dataset) => store.write(dataset, [])));
+}
+
 module.exports = {
   getCashBooks,
   getExpenseGroups,
@@ -304,4 +330,5 @@ module.exports = {
   createExpenseGroup,
   saveMonthlyPlan,
   saveCashBook,
+  resetData,
 };
