@@ -9,7 +9,7 @@ import ExpensesHistoryPage from './pages/ExpensesHistoryPage';
 import MonthlyPlannerPage from './pages/MonthlyPlannerPage';
 import ReportsPage from './pages/ReportsPage';
 import AppHeader from './components/AppHeader';
-import { resetData as resetBudgetData } from './api/budget';
+import { exportData as exportBudgetData, resetData as resetBudgetData } from './api/budget';
 
 type PageId =
   | 'dashboard'
@@ -52,6 +52,7 @@ const App: FC = () => {
   const prefersDesktop = typeof window !== 'undefined' ? window.innerWidth > 900 : true;
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(prefersDesktop);
   const [resetting, setResetting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const activeConfig = useMemo(() => {
     const match = pages.find((page) => location.pathname.startsWith(page.path));
     return match ?? pages[0];
@@ -91,6 +92,39 @@ const App: FC = () => {
     }
   };
 
+  const handleExportData = async () => {
+    if (exporting) {
+      return;
+    }
+    try {
+      setExporting(true);
+      const payload = await exportBudgetData();
+      const entries = Object.entries(payload ?? {}).filter(([key, value]) =>
+        Array.isArray(value) && ['cashBooks', 'expenseGroups', 'monthlyPlans', 'expenses'].includes(key),
+      );
+      if (!entries.length) {
+        window.alert('No data available to download.');
+        return;
+      }
+
+      entries.forEach(([key, value]) => {
+        const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${key}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      });
+    } catch (_error) {
+      window.alert('Unable to download data. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className={`app-root ${sidebarOpen ? 'sidebar-visible' : 'sidebar-hidden'}`}>
       <AppHeader title={activeConfig.label} onToggleSidebar={handleToggleSidebar} />
@@ -127,6 +161,14 @@ const App: FC = () => {
               disabled={resetting}
             >
               {resetting ? 'Resetting...' : 'Reset app data'}
+            </button>
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={handleExportData}
+              disabled={exporting}
+            >
+              {exporting ? 'Preparing...' : 'Download data (4 files)'}
             </button>
           </div>
         </aside>

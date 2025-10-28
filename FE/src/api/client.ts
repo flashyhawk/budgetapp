@@ -1,5 +1,5 @@
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ?? 'https://budgetapp-ax3v.onrender.com/';
-// const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ?? 'http://localhost:4000';
+// const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ?? 'https://budgetapp-ax3v.onrender.com/';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL ?? 'http://localhost:4000';
 
 type RequestOptions = RequestInit & {
   params?: Record<string, string | number | undefined | null>;

@@ -64,3 +64,5 @@ export const resetData = () =>
   requestVoid('/api/reset', {
     method: 'POST',
   });
+
+export const exportData = () => request<Record<string, unknown>>('/api/export');

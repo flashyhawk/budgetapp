@@ -315,6 +315,12 @@ async function resetData() {
   await Promise.all(datasets.map((dataset) => store.write(dataset, [])));
 }
 
+async function exportData() {
+  const datasets = ['cashBooks', 'expenseGroups', 'monthlyPlans', 'expenses'];
+  const entries = await Promise.all(datasets.map(async (dataset) => [dataset, await store.read(dataset)]));
+  return Object.fromEntries(entries);
+}
+
 module.exports = {
   getCashBooks,
   getExpenseGroups,
@@ -330,4 +336,5 @@ module.exports = {
   saveMonthlyPlan,
   saveCashBook,
   resetData,
+  exportData,
 };
