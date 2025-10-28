@@ -4,6 +4,9 @@ const JsonStore = require('../utils/jsonStore');
 
 const store = new JsonStore(path.join(__dirname, '..', 'data'));
 
+const roundCurrency = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const clampActual = (value) => (value < 0 ? 0 : value);
+
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const parseDate = (value) => new Date(`${value}T00:00:00Z`);
@@ -80,6 +83,12 @@ async function getExpenses(filters = {}) {
     .sort(sortByDateDesc);
 }
 
+async function getExpenseById(id) {
+  if (!id) return null;
+  const expenses = await store.read('expenses');
+  return expenses.find((expense) => expense.id === id) ?? null;
+}
+
 async function getSummary() {
   const [cashBooks, currentPlan, expenses, groups] = await Promise.all([
     getCashBooks(),
@@ -141,11 +150,109 @@ async function getSummary() {
   };
 }
 
+const findPlanIndexForExpense = (plans, expense, planMonthHint) => {
+  if (planMonthHint) {
+    const hintIndex = plans.findIndex((plan) => plan.month === planMonthHint);
+    if (hintIndex !== -1) {
+      const plan = plans[hintIndex];
+      if ((!plan.cycleStart && !plan.cycleEnd) || isWithinRange(expense.date, plan.cycleStart, plan.cycleEnd)) {
+        return hintIndex;
+      }
+    }
+  }
+
+  return plans.findIndex((plan) => isWithinRange(expense.date, plan.cycleStart, plan.cycleEnd));
+};
+
+async function adjustPlanActuals(expense, delta, planMonthHint) {
+  if (!delta) return undefined;
+  const plans = await store.read('monthlyPlans');
+  if (!plans.length) {
+    return undefined;
+  }
+
+  const planIndex = findPlanIndexForExpense(plans, expense, planMonthHint);
+  if (planIndex === -1) {
+    return undefined;
+  }
+
+  const plan = plans[planIndex];
+  const budgets = [...plan.budgets];
+  const budgetIndex = budgets.findIndex((item) => item.groupId === expense.groupId);
+  let changed = false;
+
+  if (budgetIndex === -1) {
+    if (delta > 0) {
+      budgets.push({
+        groupId: expense.groupId,
+        planned: 0,
+        actual: roundCurrency(delta),
+      });
+      changed = true;
+    }
+  } else {
+    const updatedActual = clampActual(roundCurrency(roundCurrency(budgets[budgetIndex].actual ?? 0) + delta));
+    budgets[budgetIndex] = {
+      ...budgets[budgetIndex],
+      actual: updatedActual,
+    };
+    changed = true;
+  }
+
+  if (!changed) {
+    return plan.month;
+  }
+
+  plan.budgets = budgets;
+  plans[planIndex] = plan;
+  await store.write('monthlyPlans', plans);
+  return plan.month;
+}
+
+async function computeLastActivity(cashBookId) {
+  const expenses = await store.read('expenses');
+  const latest = expenses
+    .filter((expense) => expense.cashBookId === cashBookId)
+    .sort((a, b) => {
+      if (a.date === b.date) {
+        return a.createdAt < b.createdAt ? 1 : -1;
+      }
+      return a.date < b.date ? 1 : -1;
+    })[0];
+
+  if (!latest) return null;
+
+  return {
+    date: latest.date,
+    label: latest.label,
+    amount: -latest.amount,
+  };
+}
+
+async function adjustCashBookBalance(expense, delta) {
+  if (!delta) return;
+  const cashBooks = await store.read('cashBooks');
+  const cashBookIndex = cashBooks.findIndex((book) => book.id === expense.cashBookId);
+  if (cashBookIndex === -1) {
+    return;
+  }
+
+  const updatedBook = {
+    ...cashBooks[cashBookIndex],
+    balance: roundCurrency(roundCurrency(cashBooks[cashBookIndex].balance) - delta),
+  };
+
+  updatedBook.lastActivity = await computeLastActivity(updatedBook.id);
+  cashBooks[cashBookIndex] = updatedBook;
+  await store.write('cashBooks', cashBooks);
+}
+
 async function createExpense(payload) {
+  const amount = roundCurrency(payload.amount);
   const newExpense = {
     id: payload.id ?? randomUUID(),
     label: payload.label,
-    amount: Number(payload.amount),
+    amount,
     type: payload.type ?? 'expense',
     groupId: payload.groupId,
     cashBookId: payload.cashBookId,
@@ -155,49 +262,22 @@ async function createExpense(payload) {
     createdAt: new Date().toISOString(),
   };
 
+  const currentPlan = await getCurrentPlan();
+  const planMonthHint = payload.planMonth ?? currentPlan?.month;
+  const plansSnapshot = await store.read('monthlyPlans');
+  const planIndex = findPlanIndexForExpense(plansSnapshot, newExpense, planMonthHint);
+  if (planIndex !== -1) {
+    newExpense.planMonth = plansSnapshot[planIndex].month;
+  } else if (planMonthHint) {
+    newExpense.planMonth = planMonthHint;
+  }
+
   const expenses = await store.read('expenses');
   expenses.push(newExpense);
   await store.write('expenses', expenses);
 
-  // Update current plan actuals if the expense falls within the active cycle.
-  const plans = await store.read('monthlyPlans');
-  const currentPlan = await getCurrentPlan();
-  const planMonth = payload.planMonth ?? currentPlan?.month;
-  const planIndex = planMonth ? plans.findIndex((plan) => plan.month === planMonth) : -1;
-  if (planIndex !== -1) {
-    const plan = plans[planIndex];
-    const withinCycle = isWithinRange(payload.date, plan.cycleStart, plan.cycleEnd);
-    if (withinCycle) {
-      const budget = plan.budgets.find((item) => item.groupId === payload.groupId);
-      if (budget) {
-        budget.actual = Number((budget.actual + newExpense.amount).toFixed(2));
-      } else {
-        plan.budgets.push({
-          groupId: payload.groupId,
-          planned: 0,
-          actual: newExpense.amount,
-        });
-      }
-      plans[planIndex] = plan;
-      await store.write('monthlyPlans', plans);
-    }
-  }
-
-  // Decrease the cash book balance
-  const cashBooks = await store.read('cashBooks');
-  const cashBookIndex = cashBooks.findIndex((book) => book.id === payload.cashBookId);
-  if (cashBookIndex !== -1) {
-    cashBooks[cashBookIndex] = {
-      ...cashBooks[cashBookIndex],
-      balance: Number((cashBooks[cashBookIndex].balance - newExpense.amount).toFixed(2)),
-      lastActivity: {
-        date: payload.date,
-        label: payload.label,
-        amount: -newExpense.amount,
-      },
-    };
-    await store.write('cashBooks', cashBooks);
-  }
+  await adjustPlanActuals(newExpense, amount, newExpense.planMonth ?? planMonthHint);
+  await adjustCashBookBalance(newExpense, amount);
 
   return newExpense;
 }
@@ -215,7 +295,7 @@ async function createExpenseGroup(payload) {
     name: payload.name.trim(),
     description: payload.description?.trim() ?? '',
     color: payload.color ?? '#6C63FF',
-    defaultMonthlyBudget: Number(payload.defaultMonthlyBudget ?? 0),
+    defaultMonthlyBudget: roundCurrency(payload.defaultMonthlyBudget ?? 0),
   };
 
   if (groupIndex >= 0) {
@@ -254,8 +334,8 @@ async function saveMonthlyPlan(payload) {
     const existingBudget = existingPlan?.budgets.find((item) => item.groupId === budget.groupId);
     return {
       groupId: budget.groupId,
-      planned: Number(budget.planned ?? 0),
-      actual: existingBudget ? existingBudget.actual ?? 0 : Number(budget.actual ?? 0),
+      planned: roundCurrency(budget.planned ?? 0),
+      actual: existingBudget ? existingBudget.actual ?? 0 : roundCurrency(budget.actual ?? 0),
     };
   });
 
@@ -266,7 +346,7 @@ async function saveMonthlyPlan(payload) {
     cycleEnd: payload.cycleEnd ?? '',
     locked: Boolean(payload.locked),
     currency: payload.currency ?? 'INR',
-    savingsTarget: Number(payload.savingsTarget ?? 0),
+    savingsTarget: roundCurrency(payload.savingsTarget ?? 0),
     budgets: normalizedBudgets,
   };
 
@@ -282,6 +362,73 @@ async function saveMonthlyPlan(payload) {
   return normalizedPlan;
 }
 
+async function updateExpense(id, payload = {}) {
+  if (!id) {
+    throw new Error('Expense id is required');
+  }
+
+  const expenses = await store.read('expenses');
+  const expenseIndex = expenses.findIndex((expense) => expense.id === id);
+  if (expenseIndex === -1) {
+    throw new Error('Expense not found');
+  }
+
+  const previous = { ...expenses[expenseIndex] };
+  const amount = payload.amount !== undefined ? roundCurrency(payload.amount) : previous.amount;
+  const updatedExpense = {
+    ...previous,
+    label: payload.label ?? previous.label,
+    amount,
+    groupId: payload.groupId ?? previous.groupId,
+    cashBookId: payload.cashBookId ?? previous.cashBookId,
+    date: payload.date ?? previous.date,
+    note: payload.note ?? '',
+    tags: Array.isArray(payload.tags) ? payload.tags : previous.tags ?? [],
+  };
+
+  const currentPlan = await getCurrentPlan();
+  const planMonthHint = payload.planMonth ?? previous.planMonth ?? currentPlan?.month;
+  const plansSnapshot = await store.read('monthlyPlans');
+  const newPlanIndex = findPlanIndexForExpense(plansSnapshot, updatedExpense, planMonthHint);
+  if (newPlanIndex !== -1) {
+    updatedExpense.planMonth = plansSnapshot[newPlanIndex].month;
+  } else if (planMonthHint) {
+    updatedExpense.planMonth = planMonthHint;
+  } else {
+    delete updatedExpense.planMonth;
+  }
+
+  expenses[expenseIndex] = updatedExpense;
+  await store.write('expenses', expenses);
+
+  await adjustPlanActuals(previous, -previous.amount, previous.planMonth);
+  await adjustPlanActuals(updatedExpense, amount, updatedExpense.planMonth ?? planMonthHint);
+  await adjustCashBookBalance(previous, -previous.amount);
+  await adjustCashBookBalance(updatedExpense, amount);
+
+  return updatedExpense;
+}
+
+async function deleteExpense(id) {
+  if (!id) {
+    throw new Error('Expense id is required');
+  }
+
+  const expenses = await store.read('expenses');
+  const expenseIndex = expenses.findIndex((expense) => expense.id === id);
+  if (expenseIndex === -1) {
+    throw new Error('Expense not found');
+  }
+
+  const [removed] = expenses.splice(expenseIndex, 1);
+  await store.write('expenses', expenses);
+
+  await adjustPlanActuals(removed, -removed.amount, removed.planMonth);
+  await adjustCashBookBalance(removed, -removed.amount);
+
+  return removed;
+}
+
 async function saveCashBook(payload) {
   if (!payload?.name) {
     throw new Error('Cash book name is required');
@@ -294,7 +441,7 @@ async function saveCashBook(payload) {
     name: payload.name.trim(),
     type: payload.type ?? 'bank',
     accountNumber: payload.accountNumber ?? '',
-    balance: Number(payload.balance ?? 0),
+    balance: roundCurrency(payload.balance ?? 0),
     currency: payload.currency ?? 'INR',
     notes: payload.notes ?? '',
     lastActivity: bookIndex >= 0 ? cashBooks[bookIndex].lastActivity ?? null : null,
@@ -330,8 +477,11 @@ module.exports = {
   getCurrentPlan,
   getPlanHistory,
   getExpenses,
+  getExpenseById,
   getSummary,
   createExpense,
+  updateExpense,
+  deleteExpense,
   createExpenseGroup,
   saveMonthlyPlan,
   saveCashBook,

@@ -10,6 +10,7 @@ import MonthlyPlannerPage from './pages/MonthlyPlannerPage';
 import ReportsPage from './pages/ReportsPage';
 import AppHeader from './components/AppHeader';
 import { exportData as exportBudgetData, resetData as resetBudgetData } from './api/budget';
+import Toast from './components/Toast';
 
 type PageId =
   | 'dashboard'
@@ -126,7 +127,8 @@ const App: FC = () => {
   };
 
   return (
-    <div className={`app-root ${sidebarOpen ? 'sidebar-visible' : 'sidebar-hidden'}`}>
+    <>
+      <div className={`app-root ${sidebarOpen ? 'sidebar-visible' : 'sidebar-hidden'}`}>
       <AppHeader title={activeConfig.label} onToggleSidebar={handleToggleSidebar} />
       {!prefersDesktop && sidebarOpen && (
         <button className="sidebar-backdrop" type="button" aria-label="Close menu" onClick={handleCloseSidebar} />
@@ -182,6 +184,7 @@ const App: FC = () => {
                   const Component = page.element;
                   return <Route key={page.id} path={page.path} element={<Component />} />;
                 })}
+                <Route path="/expenses/:expenseId/edit" element={<AddExpensePage />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </main>
@@ -191,7 +194,9 @@ const App: FC = () => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      <Toast />
+    </>
   );
 };
 

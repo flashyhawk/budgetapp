@@ -1136,6 +1136,7 @@
 }
 
 .report-progress-track {
+  position: relative;
   height: 10px;
   border-radius: 999px;
   background: rgba(28, 39, 76, 0.08);
@@ -1143,11 +1144,54 @@
 }
 
 .report-progress-fill {
-  display: inline-block;
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(120deg, #4c6fff, #304acb);
   transition: width 0.3s ease;
+}
+
+.report-progress-over {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #ff6b6b, #d64545);
+  transition: width 0.3s ease, left 0.3s ease;
+}
+
+.toast-container {
+  position: fixed;
+  left: 50%;
+  top: 50px;
+  transform: translateX(-50%);
+  z-index: 2000;
+  pointer-events: none;
+  opacity: .7;
+}
+
+.toast {
+  min-width: 240px;
+  max-width: 320px;
+  background: rgba(28, 39, 76, 0.95);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(28, 39, 76, 0.25);
+  font-size: 0.85rem;
+  text-align: center;
+  pointer-events: auto;
+  transition: opacity 1s ease;
+}
+
+.toast-success {
+  background: linear-gradient(120deg, #2ecc71, #1abc9c);
+}
+
+.toast-error {
+  background: linear-gradient(120deg, #ff6b6b, #d64545);
 }
 
 .info-box {

@@ -1,5 +1,6 @@
 import { FC, useCallback, useEffect, useMemo, useState } from 'react';
-import { getCashBooks, getExpenseGroups, getExpenses } from '../api/budget';
+import { useNavigate } from 'react-router-dom';
+import { deleteExpense, getCashBooks, getExpenseGroups, getExpenses } from '../api/budget';
 import type { CashBook, Expense, ExpenseGroup } from '../api/types';
 import { formatCurrency } from '../utils/currency';
 
@@ -15,6 +16,7 @@ const ExpensesHistoryPage: FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const [filters, setFilters] = useState({
     startDate: '',
@@ -108,6 +110,22 @@ const ExpensesHistoryPage: FC = () => {
         dateLabel: formatDateLabel(day.date),
       }));
   }, [expenses, expenseGroups, cashBooks]);
+
+  const handleEditExpense = (id: string) => {
+    navigate(`/expenses/${id}/edit`);
+  };
+
+  const handleDeleteExpense = async (id: string) => {
+    const confirmed = window.confirm('Delete this expense? This action cannot be undone.');
+    if (!confirmed) return;
+    try {
+      await deleteExpense(id);
+      await loadExpenses(debouncedSearch);
+      setError(null);
+    } catch (_err) {
+      setError('Unable to delete the expense. Please try again.');
+    }
+  };
 
   return (
     <div className="page">
@@ -223,10 +241,14 @@ const ExpensesHistoryPage: FC = () => {
                     {formatCurrency(expense.amount, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <div className="action-group">
-                    <button className="ghost-button" type="button">
+                    <button className="ghost-button" type="button" onClick={() => handleEditExpense(expense.id)}>
                       Edit
                     </button>
-                    <button className="ghost-button danger" type="button">
+                    <button
+                      className="ghost-button danger"
+                      type="button"
+                      onClick={() => handleDeleteExpense(expense.id)}
+                    >
                       Delete
                     </button>
                   </div>

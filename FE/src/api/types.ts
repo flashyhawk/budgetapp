@@ -75,6 +75,7 @@ export type Expense = {
   note?: string;
   tags: string[];
   createdAt: string;
+  planMonth?: string;
 };
 
 export type PlannedVsActualRow = {
@@ -101,6 +102,8 @@ export type CreateExpenseInput = {
   tags?: string[];
   planMonth?: string;
 };
+
+export type UpdateExpenseInput = CreateExpenseInput;
 
 export type CreateExpenseGroupInput = {
   name: string;

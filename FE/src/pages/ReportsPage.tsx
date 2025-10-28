@@ -291,12 +291,21 @@ const ReportsPage: FC = () => {
     return selectedPlan.budgets.map((budget) => {
       const planned = budget.planned ?? 0;
       const actual = actualsByGroup[budget.groupId] ?? budget.actual ?? 0;
-      const percentage = planned > 0 ? Math.min((actual / planned) * 100, 100) : 0;
+      const consumed = Math.min(actual, planned);
+      const overAmount = actual > planned ? actual - planned : 0;
+      const baseTotal =
+        actual > planned ? actual : planned > 0 ? planned : actual > 0 ? actual : 0;
+      const percentage =
+        baseTotal > 0 ? Math.min((consumed / baseTotal) * 100, 100) : 0;
+      const overPercentage =
+        baseTotal > 0 ? Math.min((overAmount / baseTotal) * 100, 100 - percentage) : 0;
       return {
         groupId: budget.groupId,
         planned,
         actual,
         percentage,
+        overPercentage,
+        overAmount,
         name: groupMap[budget.groupId]?.name ?? budget.groupId,
       };
     });
@@ -506,10 +515,20 @@ const ReportsPage: FC = () => {
                       <p className="item-title">{row.name}</p>
                       <span className="item-meta">
                         Planned {formatCurrency(row.planned)} · Actual {formatCurrency(row.actual)}
+                        {row.overAmount > 0 ? ` · Over by ${formatCurrency(row.overAmount)}` : ''}
                       </span>
                     </div>
                     <div className="report-progress-track">
-                      <span className="report-progress-fill" style={{ width: `${row.percentage}%` }} />
+                      <span className="report-progress-fill" style={{ width: `${Math.min(row.percentage, 100)}%` }} />
+                      {row.overPercentage > 0 && (
+                        <span
+                          className="report-progress-over"
+                          style={{
+                            left: `${Math.min(row.percentage, 100)}%`,
+                            width: `${row.overPercentage}%`,
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -523,4 +542,3 @@ const ReportsPage: FC = () => {
 };
 
 export default ReportsPage;
-

@@ -1,17 +1,30 @@
 import { FC, FormEvent, KeyboardEvent, useEffect, useMemo, useState } from 'react';
-import { createExpense, getCashBooks, getCurrentMonthlyPlan, getExpenseGroups } from '../api/budget';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  createExpense,
+  getCashBooks,
+  getCurrentMonthlyPlan,
+  getExpense,
+  getExpenseGroups,
+  getMonthlyPlans,
+  updateExpense,
+} from '../api/budget';
 import type { CashBook, ExpenseGroup, MonthlyPlan } from '../api/types';
 import { formatCurrency } from '../utils/currency';
 
 const getToday = () => new Date().toISOString().slice(0, 10);
 
 const AddExpensePage: FC = () => {
+  const { expenseId } = useParams<{ expenseId?: string }>();
+  const navigate = useNavigate();
+  const isEditing = Boolean(expenseId);
   const [groups, setGroups] = useState<ExpenseGroup[]>([]);
   const [cashBooks, setCashBooks] = useState<CashBook[]>([]);
   const [plan, setPlan] = useState<MonthlyPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
+  const [planMonthHint, setPlanMonthHint] = useState<string | undefined>(undefined);
 
   const [form, setForm] = useState({
     groupId: '',
@@ -30,6 +43,9 @@ const AddExpensePage: FC = () => {
     try {
       const planResponse = await getCurrentMonthlyPlan();
       setPlan(planResponse);
+      if (!isEditing) {
+        setPlanMonthHint(planResponse?.month ?? undefined);
+      }
     } catch (err) {
       // ignore refresh errors for now
     }
@@ -50,12 +66,14 @@ const AddExpensePage: FC = () => {
         setGroups(groupResponse);
         setCashBooks(cashBookResponse);
         setPlan(planResponse);
-
-        setForm((prev) => ({
-          ...prev,
-          groupId: groupResponse[0]?.id ?? prev.groupId,
-          cashBookId: cashBookResponse[0]?.id ?? prev.cashBookId,
-        }));
+        if (!isEditing) {
+          setForm((prev) => ({
+            ...prev,
+            groupId: groupResponse[0]?.id ?? prev.groupId,
+            cashBookId: cashBookResponse[0]?.id ?? prev.cashBookId,
+          }));
+          setPlanMonthHint(planResponse?.month ?? undefined);
+        }
       } catch (err) {
         if (!mounted) return;
         setStatus('error');
@@ -68,7 +86,63 @@ const AddExpensePage: FC = () => {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!expenseId || !groups.length || !cashBooks.length) {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const expense = await getExpense(expenseId);
+        if (cancelled || !expense) {
+          return;
+        }
+        setForm({
+          groupId: expense.groupId,
+          cashBookId: expense.cashBookId,
+          label: expense.label,
+          amount: String(expense.amount ?? ''),
+          date: expense.date,
+          note: expense.note ?? '',
+        });
+        setTags(expense.tags ?? []);
+        setPlanMonthHint(expense.planMonth ?? plan?.month ?? undefined);
+        setStatus('idle');
+        setStatusMessage('');
+        if (expense.planMonth && (!plan || plan.month !== expense.planMonth)) {
+          const allPlans = await getMonthlyPlans();
+          if (cancelled) return;
+          const matchingPlan = allPlans.find((item) => item.month === expense.planMonth);
+          if (matchingPlan) {
+            setPlan(matchingPlan);
+          }
+        }
+      } catch (_err) {
+        if (!cancelled) {
+          setStatus('error');
+          setStatusMessage('Unable to load expense details for editing.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expenseId, groups.length, cashBooks.length, plan]);
+
+  const pageTitle = isEditing ? 'Edit expense' : 'Add expense';
+  const pageSubtitle = isEditing
+    ? 'Update the details of this expense. Balances and budgets adjust automatically.'
+    : 'Capture the details of your purchase. Amounts update the selected cash book and expense group automatically.';
+  const submitLabel = isEditing ? 'Save changes' : 'Save expense';
 
   const selectedBudget = useMemo(() => {
     if (!plan || !form.groupId) return null;
@@ -122,8 +196,25 @@ const AddExpensePage: FC = () => {
       return;
     }
 
+    const planHint = planMonthHint ?? plan?.month;
+
     try {
       setStatus('saving');
+      if (isEditing && expenseId) {
+        await updateExpense(expenseId, {
+          label: form.label,
+          amount,
+          groupId: form.groupId,
+          cashBookId: form.cashBookId,
+          date: form.date,
+          note: form.note || undefined,
+          tags,
+          planMonth: planHint,
+        });
+        navigate('/expenses', { replace: true });
+        return;
+      }
+
       await createExpense({
         label: form.label,
         amount,
@@ -132,7 +223,7 @@ const AddExpensePage: FC = () => {
         date: form.date,
         note: form.note || undefined,
         tags,
-        planMonth: plan?.month,
+        planMonth: planHint,
       });
       setStatus('success');
       setStatusMessage('Expense saved successfully.');
@@ -156,12 +247,10 @@ const AddExpensePage: FC = () => {
     <div className="page">
       <section className="card">
         <header className="card-header">
-          <h2 className="card-title">Add expense</h2>
+          <h2 className="card-title">{pageTitle}</h2>
           <span className="badge badge-soft">Quick entry</span>
         </header>
-        <p className="card-subtitle">
-          Capture the details of your purchase. Amounts update the selected cash book and expense group automatically.
-        </p>
+        <p className="card-subtitle">{pageSubtitle}</p>
         <form className="form-grid" onSubmit={handleSubmit}>
           <label className="form-field">
             <span className="form-label">Expense group</span>
@@ -283,7 +372,7 @@ const AddExpensePage: FC = () => {
             </div>
           )}
           <button className="primary-button" type="submit" disabled={status === 'saving' || loading || !readyForEntry}>
-            {status === 'saving' ? 'Saving…' : 'Save expense'}
+            {status === 'saving' ? 'Saving…' : submitLabel}
           </button>
         </form>
       </section>

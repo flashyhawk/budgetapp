@@ -9,8 +9,11 @@ const {
   getCurrentPlan,
   getPlanHistory,
   getExpenses,
+  getExpenseById,
   getSummary,
   createExpense,
+  updateExpense,
+  deleteExpense,
   createExpenseGroup,
   saveMonthlyPlan,
   saveCashBook,
@@ -124,10 +127,41 @@ app.get('/api/expenses', async (req, res, next) => {
   }
 });
 
+app.get('/api/expenses/:id', async (req, res, next) => {
+  try {
+    const expense = await getExpenseById(req.params.id);
+    if (!expense) {
+      res.status(404).json({ error: 'Expense not found' });
+      return;
+    }
+    res.json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/expenses', async (req, res, next) => {
   try {
     const expense = await createExpense(req.body);
     res.status(201).json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/expenses/:id', async (req, res, next) => {
+  try {
+    const expense = await updateExpense(req.params.id, req.body);
+    res.json(expense);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/expenses/:id', async (req, res, next) => {
+  try {
+    await deleteExpense(req.params.id);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }

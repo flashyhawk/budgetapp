@@ -170,7 +170,13 @@ const DashboardPage: FC = () => {
   const plannedAmount = totalPlanned;
 
   const totalActual = actuals.total;
-  const remainingBudget = Math.max(0, plannedAmount - totalActual);
+  const remainingBudget = selectedPlan
+    ? selectedPlan.budgets.reduce((sum, budget) => {
+        const spent = actuals.byGroup[budget.groupId] ?? 0;
+        const remaining = (budget.planned ?? 0) - spent;
+        return sum + (remaining > 0 ? remaining : 0);
+      }, 0)
+    : 0;
   const progress = plannedAmount > 0 ? Math.min(Math.round((totalActual / plannedAmount) * 100), 100) : 0;
   const cashOnHand = cashBooks.reduce((sum, book) => sum + Number(book.balance || 0), 0);
   const monthLabel = formatMonthLabel(selectedMonth);

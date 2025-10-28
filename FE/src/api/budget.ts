@@ -8,6 +8,7 @@ import type {
   PlannedVsActualRow,
   Summary,
   CreateExpenseInput,
+  UpdateExpenseInput,
   CreateExpenseGroupInput,
   SaveMonthlyPlanInput,
   SaveCashBookInput,
@@ -28,10 +29,23 @@ export const getPlanHistory = () => request<MonthlyPlan[]>('/api/monthly-plans/h
 export const getExpenses = (filters: ExpensesQuery = {}) =>
   request<Expense[]>('/api/expenses', { params: filters });
 
+export const getExpense = (id: string) => request<Expense>(`/api/expenses/${id}`);
+
 export const createExpense = (payload: CreateExpenseInput) =>
   request<Expense>('/api/expenses', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+
+export const updateExpense = (id: string, payload: UpdateExpenseInput) =>
+  request<Expense>(`/api/expenses/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+export const deleteExpense = (id: string) =>
+  requestVoid(`/api/expenses/${id}`, {
+    method: 'DELETE',
   });
 
 export const getPlannedVsActual = () => request<PlannedVsActualRow[]>('/api/reports/planned-vs-actual');
