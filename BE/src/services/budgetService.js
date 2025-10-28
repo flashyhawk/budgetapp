@@ -48,7 +48,6 @@ async function getCurrentPlan() {
   if (monthMatch) {
     return monthMatch;
   }
-
   return plans[0];
 }
 
