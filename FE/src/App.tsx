@@ -156,14 +156,16 @@ const App: FC = () => {
             <button className="ghost-button" type="button">
               Kala & Suresh 🥰
             </button>
-            <button
-              className="ghost-button danger"
-              type="button"
-              onClick={handleResetData}
-              disabled={resetting}
-            >
-              {resetting ? 'Resetting...' : 'Reset app data'}
-            </button>
+            {prefersDesktop && (
+              <button
+                className="ghost-button danger"
+                type="button"
+                onClick={handleResetData}
+                disabled={resetting}
+              >
+                {resetting ? 'Resetting...' : 'Reset app data'}
+              </button>
+            )}
             <button
               className="ghost-button"
               type="button"

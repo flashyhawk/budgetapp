@@ -1,1 +1,63 @@
-[]
+[
+  {
+    "id": "f652be1b-85fc-417a-8b02-78b7867396f8",
+    "month": "2025-11",
+    "cycleStart": "2025-10-25",
+    "cycleEnd": "2025-11-24",
+    "locked": false,
+    "currency": "INR",
+    "savingsTarget": 0,
+    "budgets": [
+      {
+        "groupId": "03a84e74-e95f-42f0-8b9e-9f7db74d3373",
+        "planned": 3000,
+        "actual": 570
+      },
+      {
+        "groupId": "320bbe9a-8e91-434f-9f0f-378dfd93129d",
+        "planned": 2600,
+        "actual": 0
+      },
+      {
+        "groupId": "de951746-0f7b-4cfa-a740-7f9a8848d54f",
+        "planned": 1500,
+        "actual": 0
+      },
+      {
+        "groupId": "92d75c69-eac7-4463-a25f-550c4f71bbed",
+        "planned": 4700,
+        "actual": 0
+      },
+      {
+        "groupId": "e3fec1d5-38f7-459d-a615-69646520680c",
+        "planned": 18000,
+        "actual": 8813
+      },
+      {
+        "groupId": "9fcda14b-055c-42cd-b131-5c52a97871a7",
+        "planned": 1900,
+        "actual": 0
+      },
+      {
+        "groupId": "40f05f2d-add1-4310-81a5-e283ce674155",
+        "planned": 10000,
+        "actual": 0
+      },
+      {
+        "groupId": "6dd383ce-9dd6-4305-a416-e76aad091515",
+        "planned": 10000,
+        "actual": 10000
+      },
+      {
+        "groupId": "4e8688e7-253c-40ad-9eb9-06d8cc8eeaaa",
+        "planned": 2000,
+        "actual": 0
+      },
+      {
+        "groupId": "877321c9-b052-4945-8374-067ccd4a729d",
+        "planned": 0,
+        "actual": 2900
+      }
+    ]
+  }
+]

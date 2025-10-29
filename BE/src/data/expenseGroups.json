@@ -1,1 +1,72 @@
-[]
+[
+  {
+    "id": "03a84e74-e95f-42f0-8b9e-9f7db74d3373",
+    "name": "suresh",
+    "description": "personal",
+    "color": "#4C6FFF",
+    "defaultMonthlyBudget": 3000
+  },
+  {
+    "id": "320bbe9a-8e91-434f-9f0f-378dfd93129d",
+    "name": "petrol",
+    "description": "car & bike",
+    "color": "#FF9F1C",
+    "defaultMonthlyBudget": 2600
+  },
+  {
+    "id": "de951746-0f7b-4cfa-a740-7f9a8848d54f",
+    "name": "Jessy",
+    "description": "apacus",
+    "color": "#F687D4",
+    "defaultMonthlyBudget": 1500
+  },
+  {
+    "id": "92d75c69-eac7-4463-a25f-550c4f71bbed",
+    "name": "Medical",
+    "description": "app & others",
+    "color": "#0ACF83",
+    "defaultMonthlyBudget": 4700
+  },
+  {
+    "id": "e3fec1d5-38f7-459d-a615-69646520680c",
+    "name": "kala",
+    "description": "liquid",
+    "color": "#FF6B6B",
+    "defaultMonthlyBudget": 19992
+  },
+  {
+    "id": "9fcda14b-055c-42cd-b131-5c52a97871a7",
+    "name": "career",
+    "description": "chatgpt",
+    "color": "#1C7ED6",
+    "defaultMonthlyBudget": 1900
+  },
+  {
+    "id": "40f05f2d-add1-4310-81a5-e283ce674155",
+    "name": "church chit",
+    "description": "annual chit",
+    "color": "#2EC4B6",
+    "defaultMonthlyBudget": 10000
+  },
+  {
+    "id": "6dd383ce-9dd6-4305-a416-e76aad091515",
+    "name": "jesus redeems",
+    "description": "jesus",
+    "color": "#845EF7",
+    "defaultMonthlyBudget": 10000
+  },
+  {
+    "id": "4e8688e7-253c-40ad-9eb9-06d8cc8eeaaa",
+    "name": "net mobile",
+    "description": "recharge",
+    "color": "#6C63FF",
+    "defaultMonthlyBudget": 2000
+  },
+  {
+    "id": "877321c9-b052-4945-8374-067ccd4a729d",
+    "name": "maintenance",
+    "description": "",
+    "color": "#FCFF66",
+    "defaultMonthlyBudget": 0
+  }
+]
