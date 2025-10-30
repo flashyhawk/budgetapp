@@ -19,6 +19,7 @@ const {
   saveCashBook,
   resetData,
   exportData,
+  importData,
 } = require('./services/budgetService');
 
 const PORT = process.env.PORT || 4000;
@@ -217,6 +218,15 @@ app.get('/api/export', async (_req, res, next) => {
     const payload = await exportData();
     res.setHeader('Content-Disposition', 'attachment; filename="budget-data.json"');
     res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/import', async (req, res, next) => {
+  try {
+    const result = await importData(req.body ?? {});
+    res.json({ status: 'imported', counts: result });
   } catch (error) {
     next(error);
   }

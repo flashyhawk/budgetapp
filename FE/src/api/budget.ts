@@ -48,6 +48,18 @@ export const deleteExpense = (id: string) =>
     method: 'DELETE',
   });
 
+export const importData = (payload: {
+  cashBooks: CashBook[];
+  expenseGroups: ExpenseGroup[];
+  monthlyPlans: MonthlyPlan[];
+  expenses: Expense[];
+}) =>
+  requestVoid('/api/import', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    successMessage: 'Data imported successfully',
+  });
+
 export const getPlannedVsActual = () => request<PlannedVsActualRow[]>('/api/reports/planned-vs-actual');
 
 export const createExpenseGroup = (payload: CreateExpenseGroupInput) =>

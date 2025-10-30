@@ -429,6 +429,28 @@ async function deleteExpense(id) {
   return removed;
 }
 
+async function importData(datasets = {}) {
+  const { cashBooks = [], expenseGroups = [], monthlyPlans = [], expenses = [] } = datasets;
+
+  if (!Array.isArray(cashBooks) || !Array.isArray(expenseGroups) || !Array.isArray(monthlyPlans) || !Array.isArray(expenses)) {
+    throw new Error('Invalid import payload. Expected arrays for cashBooks, expenseGroups, monthlyPlans, and expenses.');
+  }
+
+  await Promise.all([
+    store.write('cashBooks', cashBooks),
+    store.write('expenseGroups', expenseGroups),
+    store.write('monthlyPlans', monthlyPlans),
+    store.write('expenses', expenses),
+  ]);
+
+  return {
+    cashBooks: cashBooks.length,
+    expenseGroups: expenseGroups.length,
+    monthlyPlans: monthlyPlans.length,
+    expenses: expenses.length,
+  };
+}
+
 async function saveCashBook(payload) {
   if (!payload?.name) {
     throw new Error('Cash book name is required');
@@ -487,4 +509,5 @@ module.exports = {
   saveCashBook,
   resetData,
   exportData,
+  importData,
 };

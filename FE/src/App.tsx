@@ -8,6 +8,7 @@ import ExpenseGroupsPage from './pages/ExpenseGroupsPage';
 import ExpensesHistoryPage from './pages/ExpensesHistoryPage';
 import MonthlyPlannerPage from './pages/MonthlyPlannerPage';
 import ReportsPage from './pages/ReportsPage';
+import ImportDataPage from './pages/ImportDataPage';
 import AppHeader from './components/AppHeader';
 import { exportData as exportBudgetData, resetData as resetBudgetData } from './api/budget';
 import Toast from './components/Toast';
@@ -19,7 +20,8 @@ type PageId =
   | 'expense-groups'
   | 'add-expense'
   | 'expenses'
-  | 'reports';
+  | 'reports'
+  | 'data-import';
 
 type PageConfig = {
   id: PageId;
@@ -46,6 +48,7 @@ const pages: PageConfig[] = [
   { id: 'add-expense', label: 'Add Expense', path: '/add-expense', element: AddExpensePage },
   { id: 'expenses', label: 'Expenses', path: '/expenses', element: ExpensesHistoryPage },
   { id: 'reports', label: 'Reports', path: '/reports', element: ReportsPage },
+  { id: 'data-import', label: 'Data Import', path: '/data-import', element: ImportDataPage },
 ];
 
 const App: FC = () => {

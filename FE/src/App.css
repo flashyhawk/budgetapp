@@ -896,6 +896,20 @@
   outline: none;
 }
 
+.form-helper {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(28, 39, 76, 0.6);
+}
+
+.form-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: rgba(28, 39, 76, 0.7);
+}
+
 .form-info {
   display: flex;
   align-items: center;
@@ -1192,6 +1206,10 @@
 
 .toast-error {
   background: linear-gradient(120deg, #ff6b6b, #d64545);
+}
+
+.import-progress {
+  margin-top: 18px;
 }
 
 .info-box {
