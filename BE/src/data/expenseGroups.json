@@ -68,5 +68,12 @@
     "description": "",
     "color": "#FCFF66",
     "defaultMonthlyBudget": 0
+  },
+  {
+    "id": "79d3f7ac-abbf-4c58-a346-ef85cf1944e7",
+    "name": "returnable",
+    "description": "",
+    "color": "#FF0033",
+    "defaultMonthlyBudget": 0
   }
 ]

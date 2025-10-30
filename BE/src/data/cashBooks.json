@@ -4,13 +4,13 @@
     "name": "AXIS",
     "type": "bank",
     "accountNumber": "prim",
-    "balance": 32717,
+    "balance": 29782,
     "currency": "INR",
     "notes": "Primary",
     "lastActivity": {
-      "date": "2025-10-29",
-      "label": "Fund",
-      "amount": -10000
+      "date": "2025-10-30",
+      "label": "gpay",
+      "amount": -190
     }
   },
   {

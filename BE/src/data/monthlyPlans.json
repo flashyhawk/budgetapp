@@ -11,7 +11,7 @@
       {
         "groupId": "03a84e74-e95f-42f0-8b9e-9f7db74d3373",
         "planned": 3000,
-        "actual": 570
+        "actual": 760
       },
       {
         "groupId": "320bbe9a-8e91-434f-9f0f-378dfd93129d",
@@ -31,7 +31,7 @@
       {
         "groupId": "e3fec1d5-38f7-459d-a615-69646520680c",
         "planned": 18000,
-        "actual": 8813
+        "actual": 9348
       },
       {
         "groupId": "9fcda14b-055c-42cd-b131-5c52a97871a7",
@@ -51,12 +51,17 @@
       {
         "groupId": "4e8688e7-253c-40ad-9eb9-06d8cc8eeaaa",
         "planned": 2000,
-        "actual": 0
+        "actual": 210
       },
       {
         "groupId": "877321c9-b052-4945-8374-067ccd4a729d",
         "planned": 0,
         "actual": 2900
+      },
+      {
+        "groupId": "79d3f7ac-abbf-4c58-a346-ef85cf1944e7",
+        "planned": 0,
+        "actual": 2000
       }
     ]
   }

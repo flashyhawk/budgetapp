@@ -4,7 +4,7 @@ const JsonStore = require('../utils/jsonStore');
 
 const store = new JsonStore(path.join(__dirname, '..', 'data'));
 
-const roundCurrency = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+const toAmount = (value) => Math.round(Number(value) || 0);
 const clampActual = (value) => (value < 0 ? 0 : value);
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -165,7 +165,8 @@ const findPlanIndexForExpense = (plans, expense, planMonthHint) => {
 };
 
 async function adjustPlanActuals(expense, delta, planMonthHint) {
-  if (!delta) return undefined;
+  const normalizedDelta = toAmount(delta);
+  if (!normalizedDelta) return undefined;
   const plans = await store.read('monthlyPlans');
   if (!plans.length) {
     return undefined;
@@ -182,16 +183,17 @@ async function adjustPlanActuals(expense, delta, planMonthHint) {
   let changed = false;
 
   if (budgetIndex === -1) {
-    if (delta > 0) {
+    if (normalizedDelta > 0) {
       budgets.push({
         groupId: expense.groupId,
         planned: 0,
-        actual: roundCurrency(delta),
+        actual: toAmount(normalizedDelta),
       });
       changed = true;
     }
   } else {
-    const updatedActual = clampActual(roundCurrency(roundCurrency(budgets[budgetIndex].actual ?? 0) + delta));
+    const baseActual = toAmount(budgets[budgetIndex].actual ?? 0);
+    const updatedActual = clampActual(baseActual + normalizedDelta);
     budgets[budgetIndex] = {
       ...budgets[budgetIndex],
       actual: updatedActual,
@@ -225,12 +227,13 @@ async function computeLastActivity(cashBookId) {
   return {
     date: latest.date,
     label: latest.label,
-    amount: -latest.amount,
+    amount: -toAmount(latest.amount),
   };
 }
 
 async function adjustCashBookBalance(expense, delta) {
-  if (!delta) return;
+  const normalizedDelta = toAmount(delta);
+  if (!normalizedDelta) return;
   const cashBooks = await store.read('cashBooks');
   const cashBookIndex = cashBooks.findIndex((book) => book.id === expense.cashBookId);
   if (cashBookIndex === -1) {
@@ -239,7 +242,7 @@ async function adjustCashBookBalance(expense, delta) {
 
   const updatedBook = {
     ...cashBooks[cashBookIndex],
-    balance: roundCurrency(roundCurrency(cashBooks[cashBookIndex].balance) - delta),
+    balance: toAmount(cashBooks[cashBookIndex].balance) - normalizedDelta,
   };
 
   updatedBook.lastActivity = await computeLastActivity(updatedBook.id);
@@ -248,7 +251,7 @@ async function adjustCashBookBalance(expense, delta) {
 }
 
 async function createExpense(payload) {
-  const amount = roundCurrency(payload.amount);
+  const amount = toAmount(payload.amount);
   const newExpense = {
     id: payload.id ?? randomUUID(),
     label: payload.label,
@@ -295,7 +298,7 @@ async function createExpenseGroup(payload) {
     name: payload.name.trim(),
     description: payload.description?.trim() ?? '',
     color: payload.color ?? '#6C63FF',
-    defaultMonthlyBudget: roundCurrency(payload.defaultMonthlyBudget ?? 0),
+    defaultMonthlyBudget: toAmount(payload.defaultMonthlyBudget ?? 0),
   };
 
   if (groupIndex >= 0) {
@@ -334,8 +337,8 @@ async function saveMonthlyPlan(payload) {
     const existingBudget = existingPlan?.budgets.find((item) => item.groupId === budget.groupId);
     return {
       groupId: budget.groupId,
-      planned: roundCurrency(budget.planned ?? 0),
-      actual: existingBudget ? existingBudget.actual ?? 0 : roundCurrency(budget.actual ?? 0),
+      planned: toAmount(budget.planned ?? 0),
+      actual: existingBudget ? toAmount(existingBudget.actual ?? 0) : toAmount(budget.actual ?? 0),
     };
   });
 
@@ -346,7 +349,7 @@ async function saveMonthlyPlan(payload) {
     cycleEnd: payload.cycleEnd ?? '',
     locked: Boolean(payload.locked),
     currency: payload.currency ?? 'INR',
-    savingsTarget: roundCurrency(payload.savingsTarget ?? 0),
+    savingsTarget: toAmount(payload.savingsTarget ?? 0),
     budgets: normalizedBudgets,
   };
 
@@ -374,7 +377,7 @@ async function updateExpense(id, payload = {}) {
   }
 
   const previous = { ...expenses[expenseIndex] };
-  const amount = payload.amount !== undefined ? roundCurrency(payload.amount) : previous.amount;
+  const amount = payload.amount !== undefined ? toAmount(payload.amount) : toAmount(previous.amount);
   const updatedExpense = {
     ...previous,
     label: payload.label ?? previous.label,
@@ -401,9 +404,9 @@ async function updateExpense(id, payload = {}) {
   expenses[expenseIndex] = updatedExpense;
   await store.write('expenses', expenses);
 
-  await adjustPlanActuals(previous, -previous.amount, previous.planMonth);
+  await adjustPlanActuals(previous, -toAmount(previous.amount), previous.planMonth);
   await adjustPlanActuals(updatedExpense, amount, updatedExpense.planMonth ?? planMonthHint);
-  await adjustCashBookBalance(previous, -previous.amount);
+  await adjustCashBookBalance(previous, -toAmount(previous.amount));
   await adjustCashBookBalance(updatedExpense, amount);
 
   return updatedExpense;
@@ -423,8 +426,8 @@ async function deleteExpense(id) {
   const [removed] = expenses.splice(expenseIndex, 1);
   await store.write('expenses', expenses);
 
-  await adjustPlanActuals(removed, -removed.amount, removed.planMonth);
-  await adjustCashBookBalance(removed, -removed.amount);
+  await adjustPlanActuals(removed, -toAmount(removed.amount), removed.planMonth);
+  await adjustCashBookBalance(removed, -toAmount(removed.amount));
 
   return removed;
 }
@@ -463,7 +466,7 @@ async function saveCashBook(payload) {
     name: payload.name.trim(),
     type: payload.type ?? 'bank',
     accountNumber: payload.accountNumber ?? '',
-    balance: roundCurrency(payload.balance ?? 0),
+    balance: toAmount(payload.balance ?? 0),
     currency: payload.currency ?? 'INR',
     notes: payload.notes ?? '',
     lastActivity: bookIndex >= 0 ? cashBooks[bookIndex].lastActivity ?? null : null,
