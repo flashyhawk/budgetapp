@@ -51,7 +51,7 @@ const pages: PageConfig[] = [
   { id: 'data-import', label: 'Data Import', path: '/data-import', element: ImportDataPage },
 ];
 
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v2.1.0';
 
 const App: FC = () => {
   const location = useLocation();

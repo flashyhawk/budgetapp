@@ -1,52 +1,192 @@
-const path = require('path');
-const { randomUUID } = require('crypto');
-const JsonStore = require('../utils/jsonStore');
-
-const store = new JsonStore(path.join(__dirname, '..', 'data'));
+const db = require('../db');
 
 const toAmount = (value) => Math.round(Number(value) || 0);
-const clampActual = (value) => (value < 0 ? 0 : value);
+const toDbAmount = (value) => Math.round(Number(value) * 100);
+const fromDbAmount = (value) => (Number(value) || 0) / 100;
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
+const endOfMonth = (month) => {
+  if (!month) return '';
+  const [year, monthIndex] = month.split('-').map(Number);
+  if (!year || !monthIndex) return '';
+  const date = new Date(year, monthIndex, 0);
+  return date.toISOString().slice(0, 10);
+};
 
-const parseDate = (value) => new Date(`${value}T00:00:00Z`);
+const normalizeDate = (value) => {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+};
 
 const isWithinRange = (dateValue, start, end) => {
-  const ts = parseDate(dateValue).getTime();
-  if (start && ts < parseDate(start).getTime()) return false;
-  if (end && ts > parseDate(end).getTime()) return false;
+  if (!dateValue) return false;
+  const date = normalizeDate(dateValue);
+  if (!date) return false;
+  const ts = new Date(`${date}T00:00:00Z`).getTime();
+  if (start) {
+    const startTs = new Date(`${start}T00:00:00Z`).getTime();
+    if (ts < startTs) return false;
+  }
+  if (end) {
+    const endTs = new Date(`${end}T00:00:00Z`).getTime();
+    if (ts > endTs) return false;
+  }
   return true;
 };
 
-const sortByDateDesc = (a, b) => (a.date < b.date ? 1 : -1);
+const runQuery = (client, text, params = []) => {
+  if (client) {
+    return client.query(text, params);
+  }
+  return db.query(text, params);
+};
+
+const withTransaction = async (handler) => {
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const result = await handler(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const mapCashBookRow = (row) => {
+  const lastActivity = row.last_activity_date
+    ? {
+        date: normalizeDate(row.last_activity_date),
+        label: row.last_activity_label,
+        amount: -fromDbAmount(row.last_activity_amount_cents || 0),
+      }
+    : null;
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    accountNumber: row.account_number ?? '',
+    balance: fromDbAmount(row.balance_cents),
+    currency: row.currency,
+    notes: row.notes ?? '',
+    lastActivity,
+  };
+};
+
+const mapExpenseGroupRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  description: row.description ?? '',
+  color: row.color ?? '#6C63FF',
+  defaultMonthlyBudget: fromDbAmount(row.default_monthly_budget_cents),
+});
+
+const mapBudgetRow = (row) => ({
+  groupId: row.group_id,
+  planned: fromDbAmount(row.planned_cents),
+  actual: fromDbAmount(row.actual_cents),
+});
+
+const mapPlanRow = (planRow, budgets = []) => ({
+  id: planRow.id,
+  month: planRow.month_key,
+  cycleStart: normalizeDate(planRow.cycle_start),
+  cycleEnd: normalizeDate(planRow.cycle_end),
+  locked: Boolean(planRow.locked),
+  currency: planRow.currency,
+  savingsTarget: fromDbAmount(planRow.savings_target_cents),
+  budgets,
+});
+
+const mapExpenseRow = (row) => ({
+  id: row.id,
+  label: row.label,
+  amount: fromDbAmount(row.amount_cents),
+  type: row.entry_type,
+  groupId: row.group_id,
+  cashBookId: row.cash_book_id,
+  date: normalizeDate(row.txn_date),
+  note: row.note ?? '',
+  tags: row.tags ?? [],
+  createdAt: row.created_at?.toISOString() ?? new Date().toISOString(),
+  planMonth: row.plan_month_key ?? undefined,
+});
+
+async function fetchPlans(client) {
+  const { rows: planRows } = await runQuery(
+    client,
+    'SELECT * FROM monthly_plans ORDER BY month_key DESC',
+  );
+  if (!planRows.length) {
+    return [];
+  }
+  const { rows: budgetRows } = await runQuery(
+    client,
+    'SELECT * FROM monthly_plan_budgets WHERE plan_id = ANY($1)',
+    [planRows.map((plan) => plan.id)],
+  );
+  const budgetsByPlan = budgetRows.reduce((acc, row) => {
+    acc[row.plan_id] = acc[row.plan_id] ?? [];
+    acc[row.plan_id].push(mapBudgetRow(row));
+    return acc;
+  }, {});
+  return planRows.map((plan) => mapPlanRow(plan, budgetsByPlan[plan.id] ?? []));
+}
 
 async function getCashBooks() {
-  return store.read('cashBooks');
+  const { rows } = await runQuery(
+    null,
+    `SELECT cb.*,
+            last.txn_date AS last_activity_date,
+            last.label AS last_activity_label,
+            last.amount_cents AS last_activity_amount_cents
+     FROM cash_books cb
+     LEFT JOIN LATERAL (
+       SELECT e.txn_date, e.label, e.amount_cents
+       FROM expenses e
+       WHERE e.cash_book_id = cb.id
+       ORDER BY e.txn_date DESC, e.created_at DESC
+       LIMIT 1
+     ) last ON true
+     ORDER BY cb.created_at DESC`,
+  );
+  return rows.map(mapCashBookRow);
 }
 
 async function getExpenseGroups() {
-  return store.read('expenseGroups');
+  const { rows } = await runQuery(null, 'SELECT * FROM expense_groups ORDER BY created_at DESC');
+  return rows.map(mapExpenseGroupRow);
 }
 
 async function getMonthlyPlans() {
-  const plans = await store.read('monthlyPlans');
-  return plans.sort((a, b) => (a.month < b.month ? 1 : -1));
+  return fetchPlans(null);
+}
+
+async function getMonthlyPlanById(id) {
+  if (!id) return null;
+  const plans = await fetchPlans(null);
+  return plans.find((plan) => plan.id === id) ?? null;
 }
 
 async function getCurrentPlan() {
-  const plans = await getMonthlyPlans();
+  const plans = await fetchPlans(null);
   if (!plans.length) {
     return null;
   }
-
   const todayKey = new Date().toISOString().slice(0, 10);
   const currentMonth = todayKey.slice(0, 7);
-
-  const activeCycle = plans.find((plan) => isWithinRange(todayKey, plan.cycleStart, plan.cycleEnd));
+  const activeCycle = plans.find((plan) => {
+    const start = plan.cycleStart || `${plan.month}-01`;
+    const end = plan.cycleEnd || endOfMonth(plan.month);
+    return isWithinRange(todayKey, start, end);
+  });
   if (activeCycle) {
     return activeCycle;
   }
-
   const monthMatch = plans.find((plan) => plan.month === currentMonth);
   if (monthMatch) {
     return monthMatch;
@@ -55,7 +195,7 @@ async function getCurrentPlan() {
 }
 
 async function getPlanHistory() {
-  const plans = await getMonthlyPlans();
+  const plans = await fetchPlans(null);
   const currentPlan = await getCurrentPlan();
   if (!currentPlan) {
     return plans;
@@ -64,29 +204,46 @@ async function getPlanHistory() {
 }
 
 async function getExpenses(filters = {}) {
-  const expenses = await store.read('expenses');
-  const { startDate, endDate, groupId, cashBookId, search } = filters;
-
-  return expenses
-    .filter((expense) => isWithinRange(expense.date, startDate, endDate))
-    .filter((expense) => (groupId ? expense.groupId === groupId : true))
-    .filter((expense) => (cashBookId ? expense.cashBookId === cashBookId : true))
-    .filter((expense) => {
-      if (!search) return true;
-      const term = search.toLowerCase();
-      return (
-        expense.label.toLowerCase().includes(term) ||
-        (expense.note && expense.note.toLowerCase().includes(term)) ||
-        expense.tags.some((tag) => tag.toLowerCase().includes(term))
-      );
-    })
-    .sort(sortByDateDesc);
+  const conditions = [];
+  const params = [];
+  if (filters.startDate) {
+    params.push(filters.startDate);
+    conditions.push(`txn_date >= $${params.length}`);
+  }
+  if (filters.endDate) {
+    params.push(filters.endDate);
+    conditions.push(`txn_date <= $${params.length}`);
+  }
+  if (filters.groupId) {
+    params.push(filters.groupId);
+    conditions.push(`group_id = $${params.length}`);
+  }
+  if (filters.cashBookId) {
+    params.push(filters.cashBookId);
+    conditions.push(`cash_book_id = $${params.length}`);
+  }
+  if (filters.search) {
+    params.push(`%${filters.search.toLowerCase()}%`);
+    const idx = params.length;
+    conditions.push(
+      `(LOWER(label) LIKE $${idx} OR LOWER(COALESCE(note, '')) LIKE $${idx} OR EXISTS (
+        SELECT 1 FROM unnest(tags) tag WHERE LOWER(tag) LIKE $${idx}
+      ))`,
+    );
+  }
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const { rows } = await runQuery(
+    null,
+    `SELECT * FROM expenses ${whereClause} ORDER BY txn_date DESC, created_at DESC`,
+    params,
+  );
+  return rows.map(mapExpenseRow);
 }
 
 async function getExpenseById(id) {
   if (!id) return null;
-  const expenses = await store.read('expenses');
-  return expenses.find((expense) => expense.id === id) ?? null;
+  const { rows } = await runQuery(null, 'SELECT * FROM expenses WHERE id = $1', [id]);
+  return rows.length ? mapExpenseRow(rows[0]) : null;
 }
 
 async function getSummary() {
@@ -96,9 +253,7 @@ async function getSummary() {
     getExpenses(),
     getExpenseGroups(),
   ]);
-
   const planBudgets = currentPlan?.budgets ?? [];
-
   const planTotals = planBudgets.reduce(
     (acc, budget) => {
       acc.planned += budget.planned;
@@ -107,12 +262,10 @@ async function getSummary() {
     },
     { planned: 0, actual: 0 },
   );
-
   const groupedExpenses = expenses.reduce((acc, expense) => {
     acc[expense.groupId] = (acc[expense.groupId] ?? 0) + expense.amount;
     return acc;
   }, {});
-
   const topGroups = groups
     .map((group) => ({
       groupId: group.id,
@@ -121,10 +274,8 @@ async function getSummary() {
     }))
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 3);
-
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const totalBalance = cashBooks.reduce((sum, book) => sum + book.balance, 0);
-
   return {
     cycle: {
       month: currentPlan?.month ?? '',
@@ -150,302 +301,478 @@ async function getSummary() {
   };
 }
 
-const findPlanIndexForExpense = (plans, expense, planMonthHint) => {
-  if (planMonthHint) {
-    const hintIndex = plans.findIndex((plan) => plan.month === planMonthHint);
-    if (hintIndex !== -1) {
-      const plan = plans[hintIndex];
-      if ((!plan.cycleStart && !plan.cycleEnd) || isWithinRange(expense.date, plan.cycleStart, plan.cycleEnd)) {
-        return hintIndex;
-      }
-    }
-  }
-
-  return plans.findIndex((plan) => isWithinRange(expense.date, plan.cycleStart, plan.cycleEnd));
-};
-
-async function adjustPlanActuals(expense, delta, planMonthHint) {
-  const normalizedDelta = toAmount(delta);
-  if (!normalizedDelta) return undefined;
-  const plans = await store.read('monthlyPlans');
+async function findPlanForExpense(client, expenseDate, planMonthHint) {
+  const plans = await fetchPlans(client);
   if (!plans.length) {
-    return undefined;
+    return { plan: null, monthKey: planMonthHint || null };
   }
-
-  const planIndex = findPlanIndexForExpense(plans, expense, planMonthHint);
-  if (planIndex === -1) {
-    return undefined;
-  }
-
-  const plan = plans[planIndex];
-  const budgets = [...plan.budgets];
-  const budgetIndex = budgets.findIndex((item) => item.groupId === expense.groupId);
-  let changed = false;
-
-  if (budgetIndex === -1) {
-    if (normalizedDelta > 0) {
-      budgets.push({
-        groupId: expense.groupId,
-        planned: 0,
-        actual: toAmount(normalizedDelta),
-      });
-      changed = true;
-    }
-  } else {
-    const baseActual = toAmount(budgets[budgetIndex].actual ?? 0);
-    const updatedActual = clampActual(baseActual + normalizedDelta);
-    budgets[budgetIndex] = {
-      ...budgets[budgetIndex],
-      actual: updatedActual,
-    };
-    changed = true;
-  }
-
-  if (!changed) {
-    return plan.month;
-  }
-
-  plan.budgets = budgets;
-  plans[planIndex] = plan;
-  await store.write('monthlyPlans', plans);
-  return plan.month;
-}
-
-async function computeLastActivity(cashBookId) {
-  const expenses = await store.read('expenses');
-  const latest = expenses
-    .filter((expense) => expense.cashBookId === cashBookId)
-    .sort((a, b) => {
-      if (a.date === b.date) {
-        return a.createdAt < b.createdAt ? 1 : -1;
+  if (planMonthHint) {
+    const hintPlan = plans.find((plan) => plan.month === planMonthHint);
+    if (hintPlan) {
+      const matches =
+        (!hintPlan.cycleStart && !hintPlan.cycleEnd) ||
+        isWithinRange(
+          expenseDate,
+          hintPlan.cycleStart || `${hintPlan.month}-01`,
+          hintPlan.cycleEnd || endOfMonth(hintPlan.month),
+        );
+      if (matches) {
+        return { plan: hintPlan, monthKey: hintPlan.month };
       }
-      return a.date < b.date ? 1 : -1;
-    })[0];
-
-  if (!latest) return null;
-
-  return {
-    date: latest.date,
-    label: latest.label,
-    amount: -toAmount(latest.amount),
-  };
+      return { plan: hintPlan, monthKey: hintPlan.month };
+    }
+  }
+  const matchingPlan = plans.find((plan) =>
+    isWithinRange(
+      expenseDate,
+      plan.cycleStart || `${plan.month}-01`,
+      plan.cycleEnd || endOfMonth(plan.month),
+    ),
+  );
+  if (matchingPlan) {
+    return { plan: matchingPlan, monthKey: matchingPlan.month };
+  }
+  return { plan: plans[0], monthKey: plans[0]?.month ?? null };
 }
 
-async function adjustCashBookBalance(expense, delta) {
-  const normalizedDelta = toAmount(delta);
-  if (!normalizedDelta) return;
-  const cashBooks = await store.read('cashBooks');
-  const cashBookIndex = cashBooks.findIndex((book) => book.id === expense.cashBookId);
-  if (cashBookIndex === -1) {
-    return;
+async function adjustPlanActuals(client, groupId, deltaCents, planMonthKey) {
+  if (!deltaCents || !planMonthKey) return null;
+  const { rows } = await runQuery(
+    client,
+    'SELECT id FROM monthly_plans WHERE month_key = $1 LIMIT 1',
+    [planMonthKey],
+  );
+  if (!rows.length) {
+    return null;
   }
+  const planId = rows[0].id;
+  await runQuery(
+    client,
+    `INSERT INTO monthly_plan_budgets (plan_id, group_id, planned_cents, actual_cents)
+     VALUES ($1, $2, 0, GREATEST($3, 0))
+     ON CONFLICT (plan_id, group_id)
+     DO UPDATE SET actual_cents = GREATEST(monthly_plan_budgets.actual_cents + $3, 0)`,
+    [planId, groupId, deltaCents],
+  );
+  return planMonthKey;
+}
 
-  const updatedBook = {
-    ...cashBooks[cashBookIndex],
-    balance: toAmount(cashBooks[cashBookIndex].balance) - normalizedDelta,
-  };
-
-  updatedBook.lastActivity = await computeLastActivity(updatedBook.id);
-  cashBooks[cashBookIndex] = updatedBook;
-  await store.write('cashBooks', cashBooks);
+async function adjustCashBookBalance(client, cashBookId, deltaCents) {
+  if (!deltaCents) return;
+  await runQuery(
+    client,
+    'UPDATE cash_books SET balance_cents = balance_cents - $1 WHERE id = $2',
+    [deltaCents, cashBookId],
+  );
 }
 
 async function createExpense(payload) {
-  const amount = toAmount(payload.amount);
-  const newExpense = {
-    id: payload.id ?? randomUUID(),
-    label: payload.label,
-    amount,
-    type: payload.type ?? 'expense',
-    groupId: payload.groupId,
-    cashBookId: payload.cashBookId,
-    date: payload.date,
-    note: payload.note ?? '',
-    tags: payload.tags ?? [],
-    createdAt: new Date().toISOString(),
-  };
-
-  const currentPlan = await getCurrentPlan();
-  const planMonthHint = payload.planMonth ?? currentPlan?.month;
-  const plansSnapshot = await store.read('monthlyPlans');
-  const planIndex = findPlanIndexForExpense(plansSnapshot, newExpense, planMonthHint);
-  if (planIndex !== -1) {
-    newExpense.planMonth = plansSnapshot[planIndex].month;
-  } else if (planMonthHint) {
-    newExpense.planMonth = planMonthHint;
-  }
-
-  const expenses = await store.read('expenses');
-  expenses.push(newExpense);
-  await store.write('expenses', expenses);
-
-  await adjustPlanActuals(newExpense, amount, newExpense.planMonth ?? planMonthHint);
-  await adjustCashBookBalance(newExpense, amount);
-
-  return newExpense;
-}
-
-async function createExpenseGroup(payload) {
-  if (!payload?.name) {
-    throw new Error('Expense group name is required');
-  }
-
-  const groups = await store.read('expenseGroups');
-  const groupIndex = payload.id ? groups.findIndex((group) => group.id === payload.id) : -1;
-
-  const normalized = {
-    id: payload.id ?? randomUUID(),
-    name: payload.name.trim(),
-    description: payload.description?.trim() ?? '',
-    color: payload.color ?? '#6C63FF',
-    defaultMonthlyBudget: toAmount(payload.defaultMonthlyBudget ?? 0),
-  };
-
-  if (groupIndex >= 0) {
-    groups[groupIndex] = { ...groups[groupIndex], ...normalized };
-  } else {
-    groups.push(normalized);
-  }
-
-  await store.write('expenseGroups', groups);
-
-  return normalized;
-}
-
-async function getExpenseGroupById(id) {
-  if (!id) return null;
-  const groups = await store.read('expenseGroups');
-  return groups.find((group) => group.id === id) ?? null;
-}
-
-async function getMonthlyPlanById(id) {
-  if (!id) return null;
-  const plans = await store.read('monthlyPlans');
-  return plans.find((plan) => plan.id === id) ?? null;
-}
-
-async function saveMonthlyPlan(payload) {
-  if (!payload?.month) {
-    throw new Error('Plan month is required');
-  }
-
-  const plans = await store.read('monthlyPlans');
-  const planIndex = payload.id ? plans.findIndex((plan) => plan.id === payload.id) : -1;
-  const existingPlan = planIndex >= 0 ? plans[planIndex] : null;
-
-  const normalizedBudgets = (payload.budgets ?? []).map((budget) => {
-    const existingBudget = existingPlan?.budgets.find((item) => item.groupId === budget.groupId);
-    return {
-      groupId: budget.groupId,
-      planned: toAmount(budget.planned ?? 0),
-      actual: existingBudget ? toAmount(existingBudget.actual ?? 0) : toAmount(budget.actual ?? 0),
-    };
+  return withTransaction(async (client) => {
+    const amountCents = toDbAmount(payload.amount);
+    const { plan, monthKey } = await findPlanForExpense(client, payload.date, payload.planMonth);
+    const { rows } = await runQuery(
+      client,
+      `INSERT INTO expenses
+         (label, amount_cents, entry_type, group_id, cash_book_id, txn_date, note, tags, plan_month_key)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        payload.label,
+        amountCents,
+        payload.type ?? 'expense',
+        payload.groupId,
+        payload.cashBookId,
+        payload.date,
+        payload.note ?? null,
+        payload.tags ?? [],
+        monthKey ?? null,
+      ],
+    );
+    const expenseRow = rows[0];
+    await adjustPlanActuals(client, payload.groupId, amountCents, plan?.month ?? monthKey);
+    await adjustCashBookBalance(client, payload.cashBookId, amountCents);
+    return mapExpenseRow(expenseRow);
   });
-
-  const normalizedPlan = {
-    id: payload.id ?? randomUUID(),
-    month: payload.month,
-    cycleStart: payload.cycleStart ?? '',
-    cycleEnd: payload.cycleEnd ?? '',
-    locked: Boolean(payload.locked),
-    currency: payload.currency ?? 'INR',
-    savingsTarget: toAmount(payload.savingsTarget ?? 0),
-    budgets: normalizedBudgets,
-  };
-
-  if (planIndex >= 0) {
-    plans[planIndex] = normalizedPlan;
-  } else {
-    plans.push(normalizedPlan);
-  }
-
-  plans.sort((a, b) => (a.month < b.month ? 1 : -1));
-  await store.write('monthlyPlans', plans);
-
-  return normalizedPlan;
 }
 
 async function updateExpense(id, payload = {}) {
   if (!id) {
     throw new Error('Expense id is required');
   }
-
-  const expenses = await store.read('expenses');
-  const expenseIndex = expenses.findIndex((expense) => expense.id === id);
-  if (expenseIndex === -1) {
-    throw new Error('Expense not found');
-  }
-
-  const previous = { ...expenses[expenseIndex] };
-  const amount = payload.amount !== undefined ? toAmount(payload.amount) : toAmount(previous.amount);
-  const updatedExpense = {
-    ...previous,
-    label: payload.label ?? previous.label,
-    amount,
-    groupId: payload.groupId ?? previous.groupId,
-    cashBookId: payload.cashBookId ?? previous.cashBookId,
-    date: payload.date ?? previous.date,
-    note: payload.note ?? '',
-    tags: Array.isArray(payload.tags) ? payload.tags : previous.tags ?? [],
-  };
-
-  const currentPlan = await getCurrentPlan();
-  const planMonthHint = payload.planMonth ?? previous.planMonth ?? currentPlan?.month;
-  const plansSnapshot = await store.read('monthlyPlans');
-  const newPlanIndex = findPlanIndexForExpense(plansSnapshot, updatedExpense, planMonthHint);
-  if (newPlanIndex !== -1) {
-    updatedExpense.planMonth = plansSnapshot[newPlanIndex].month;
-  } else if (planMonthHint) {
-    updatedExpense.planMonth = planMonthHint;
-  } else {
-    delete updatedExpense.planMonth;
-  }
-
-  expenses[expenseIndex] = updatedExpense;
-  await store.write('expenses', expenses);
-
-  await adjustPlanActuals(previous, -toAmount(previous.amount), previous.planMonth);
-  await adjustPlanActuals(updatedExpense, amount, updatedExpense.planMonth ?? planMonthHint);
-  await adjustCashBookBalance(previous, -toAmount(previous.amount));
-  await adjustCashBookBalance(updatedExpense, amount);
-
-  return updatedExpense;
+  return withTransaction(async (client) => {
+    const existingResult = await runQuery(client, 'SELECT * FROM expenses WHERE id = $1', [id]);
+    if (!existingResult.rows.length) {
+      throw new Error('Expense not found');
+    }
+    const previous = existingResult.rows[0];
+    const amountCents =
+      payload.amount !== undefined ? toDbAmount(payload.amount) : Number(previous.amount_cents);
+    const planHint = payload.planMonth ?? previous.plan_month_key;
+    const { plan, monthKey } = await findPlanForExpense(
+      client,
+      payload.date ?? normalizeDate(previous.txn_date),
+      planHint,
+    );
+    const { rows } = await runQuery(
+      client,
+      `UPDATE expenses
+       SET label = $1,
+           amount_cents = $2,
+           group_id = $3,
+           cash_book_id = $4,
+           txn_date = $5,
+           note = $6,
+           tags = $7,
+           plan_month_key = $8,
+           updated_at = NOW()
+       WHERE id = $9
+       RETURNING *`,
+      [
+        payload.label ?? previous.label,
+        amountCents,
+        payload.groupId ?? previous.group_id,
+        payload.cashBookId ?? previous.cash_book_id,
+        payload.date ?? normalizeDate(previous.txn_date),
+        payload.note ?? previous.note ?? null,
+        Array.isArray(payload.tags) ? payload.tags : previous.tags ?? [],
+        plan?.month ?? monthKey ?? null,
+        id,
+      ],
+    );
+    const updated = rows[0];
+    await adjustPlanActuals(client, previous.group_id, -Number(previous.amount_cents), previous.plan_month_key);
+    await adjustPlanActuals(client, updated.group_id, amountCents, updated.plan_month_key);
+    await adjustCashBookBalance(client, previous.cash_book_id, -Number(previous.amount_cents));
+    await adjustCashBookBalance(client, updated.cash_book_id, amountCents);
+    return mapExpenseRow(updated);
+  });
 }
 
 async function deleteExpense(id) {
   if (!id) {
     throw new Error('Expense id is required');
   }
+  return withTransaction(async (client) => {
+    const { rows } = await runQuery(
+      client,
+      'DELETE FROM expenses WHERE id = $1 RETURNING *',
+      [id],
+    );
+    if (!rows.length) {
+      throw new Error('Expense not found');
+    }
+    const removed = rows[0];
+    await adjustPlanActuals(client, removed.group_id, -Number(removed.amount_cents), removed.plan_month_key);
+    await adjustCashBookBalance(client, removed.cash_book_id, -Number(removed.amount_cents));
+    return mapExpenseRow(removed);
+  });
+}
 
-  const expenses = await store.read('expenses');
-  const expenseIndex = expenses.findIndex((expense) => expense.id === id);
-  if (expenseIndex === -1) {
-    throw new Error('Expense not found');
+async function createExpenseGroup(payload) {
+  if (!payload?.name) {
+    throw new Error('Expense group name is required');
   }
+  const normalized = {
+    id: payload.id,
+    name: payload.name.trim(),
+    description: payload.description?.trim() ?? '',
+    color: payload.color ?? '#6C63FF',
+    defaultMonthlyBudget: toDbAmount(payload.defaultMonthlyBudget ?? 0),
+  };
+  if (normalized.id) {
+    const { rows } = await runQuery(
+      null,
+      `UPDATE expense_groups
+       SET name = $1,
+           description = $2,
+           color = $3,
+           default_monthly_budget_cents = $4,
+           updated_at = NOW()
+       WHERE id = $5
+       RETURNING *`,
+      [normalized.name, normalized.description, normalized.color, normalized.defaultMonthlyBudget, normalized.id],
+    );
+    return mapExpenseGroupRow(rows[0]);
+  }
+  const { rows } = await runQuery(
+    null,
+    `INSERT INTO expense_groups (name, description, color, default_monthly_budget_cents)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [normalized.name, normalized.description, normalized.color, normalized.defaultMonthlyBudget],
+  );
+  return mapExpenseGroupRow(rows[0]);
+}
 
-  const [removed] = expenses.splice(expenseIndex, 1);
-  await store.write('expenses', expenses);
+async function saveMonthlyPlan(payload) {
+  if (!payload?.month) {
+    throw new Error('Plan month is required');
+  }
+  return withTransaction(async (client) => {
+    let planId = payload.id ?? null;
+    if (planId) {
+      await runQuery(
+        client,
+        `UPDATE monthly_plans
+         SET month_key = $1,
+             cycle_start = $2,
+             cycle_end = $3,
+             locked = $4,
+             currency = $5,
+             savings_target_cents = $6,
+             updated_at = NOW()
+         WHERE id = $7`,
+        [
+          payload.month,
+          payload.cycleStart || null,
+          payload.cycleEnd || null,
+          Boolean(payload.locked),
+          payload.currency || 'INR',
+          toDbAmount(payload.savingsTarget ?? 0),
+          planId,
+        ],
+      );
+    } else {
+      const { rows } = await runQuery(
+        client,
+        `INSERT INTO monthly_plans (month_key, cycle_start, cycle_end, locked, currency, savings_target_cents)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [
+          payload.month,
+          payload.cycleStart || null,
+          payload.cycleEnd || null,
+          Boolean(payload.locked),
+          payload.currency || 'INR',
+          toDbAmount(payload.savingsTarget ?? 0),
+        ],
+      );
+      planId = rows[0].id;
+    }
 
-  await adjustPlanActuals(removed, -toAmount(removed.amount), removed.planMonth);
-  await adjustCashBookBalance(removed, -toAmount(removed.amount));
+    const existingBudgetsResult = await runQuery(
+      client,
+      'SELECT group_id, actual_cents FROM monthly_plan_budgets WHERE plan_id = $1',
+      [planId],
+    );
+    const existingActuals = existingBudgetsResult.rows.reduce((acc, row) => {
+      acc[row.group_id] = Number(row.actual_cents);
+      return acc;
+    }, {});
 
-  return removed;
+    const normalizedBudgets = (payload.budgets ?? []).map((budget) => ({
+      groupId: budget.groupId,
+      planned: toDbAmount(budget.planned ?? 0),
+      actual: existingActuals[budget.groupId] ?? toDbAmount(budget.actual ?? 0),
+    }));
+
+    await Promise.all(
+      normalizedBudgets.map((budget) =>
+        runQuery(
+          client,
+          `INSERT INTO monthly_plan_budgets (plan_id, group_id, planned_cents, actual_cents)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (plan_id, group_id)
+           DO UPDATE SET planned_cents = $3`,
+          [planId, budget.groupId, budget.planned, budget.actual],
+        ),
+      ),
+    );
+
+    const keepGroupIds = normalizedBudgets.map((budget) => budget.groupId);
+    if (keepGroupIds.length) {
+      await runQuery(
+        client,
+        `DELETE FROM monthly_plan_budgets
+         WHERE plan_id = $1 AND NOT (group_id = ANY($2::uuid[]))`,
+        [planId, keepGroupIds],
+      );
+    } else {
+      await runQuery(client, 'DELETE FROM monthly_plan_budgets WHERE plan_id = $1', [planId]);
+    }
+
+    const plan = await getMonthlyPlanById(planId);
+    return plan;
+  });
+}
+
+async function saveCashBook(payload) {
+  if (!payload?.name) {
+    throw new Error('Cash book name is required');
+  }
+  const normalized = {
+    id: payload.id,
+    name: payload.name.trim(),
+    type: payload.type ?? 'bank',
+    accountNumber: payload.accountNumber ?? '',
+    balance: toDbAmount(payload.balance ?? 0),
+    currency: payload.currency ?? 'INR',
+    notes: payload.notes ?? '',
+  };
+  if (normalized.id) {
+    const { rows } = await runQuery(
+      null,
+      `UPDATE cash_books
+       SET name = $1,
+           type = $2,
+           account_number = $3,
+           balance_cents = $4,
+           currency = $5,
+           notes = $6,
+           updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [
+        normalized.name,
+        normalized.type,
+        normalized.accountNumber,
+        normalized.balance,
+        normalized.currency,
+        normalized.notes,
+        normalized.id,
+      ],
+    );
+    return mapCashBookRow(rows[0]);
+  }
+  const { rows } = await runQuery(
+    null,
+    `INSERT INTO cash_books (name, type, account_number, balance_cents, currency, notes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING *`,
+    [
+      normalized.name,
+      normalized.type,
+      normalized.accountNumber,
+      normalized.balance,
+      normalized.currency,
+      normalized.notes,
+    ],
+  );
+  return mapCashBookRow(rows[0]);
+}
+
+async function resetData() {
+  await withTransaction(async (client) => {
+    await runQuery(client, 'TRUNCATE expenses, monthly_plan_budgets, monthly_plans, expense_groups, cash_books RESTART IDENTITY');
+  });
+}
+
+async function exportData() {
+  const [cashBooks, expenseGroups, monthlyPlans, expenses] = await Promise.all([
+    getCashBooks(),
+    getExpenseGroups(),
+    getMonthlyPlans(),
+    getExpenses(),
+  ]);
+  return {
+    cashBooks,
+    expenseGroups,
+    monthlyPlans,
+    expenses,
+  };
 }
 
 async function importData(datasets = {}) {
-  const { cashBooks = [], expenseGroups = [], monthlyPlans = [], expenses = [] } = datasets;
+  const {
+    cashBooks = [],
+    expenseGroups = [],
+    monthlyPlans = [],
+    expenses = [],
+  } = datasets;
+  await withTransaction(async (client) => {
+    await runQuery(client, 'TRUNCATE expenses, monthly_plan_budgets, monthly_plans, expense_groups, cash_books RESTART IDENTITY');
 
-  if (!Array.isArray(cashBooks) || !Array.isArray(expenseGroups) || !Array.isArray(monthlyPlans) || !Array.isArray(expenses)) {
-    throw new Error('Invalid import payload. Expected arrays for cashBooks, expenseGroups, monthlyPlans, and expenses.');
-  }
+    await Promise.all(
+      cashBooks.map((book) =>
+        runQuery(
+          client,
+          `INSERT INTO cash_books (id, name, type, account_number, balance_cents, currency, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            book.id,
+            book.name,
+            book.type ?? 'bank',
+            book.accountNumber ?? '',
+            toDbAmount(book.balance ?? 0),
+            book.currency ?? 'INR',
+            book.notes ?? '',
+          ],
+        ),
+      ),
+    );
 
-  await Promise.all([
-    store.write('cashBooks', cashBooks),
-    store.write('expenseGroups', expenseGroups),
-    store.write('monthlyPlans', monthlyPlans),
-    store.write('expenses', expenses),
-  ]);
+    await Promise.all(
+      expenseGroups.map((group) =>
+        runQuery(
+          client,
+          `INSERT INTO expense_groups (id, name, description, color, default_monthly_budget_cents)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            group.id,
+            group.name,
+            group.description ?? '',
+            group.color ?? '#6C63FF',
+            toDbAmount(group.defaultMonthlyBudget ?? 0),
+          ],
+        ),
+      ),
+    );
 
+    for (const plan of monthlyPlans) {
+      await runQuery(
+        client,
+        `INSERT INTO monthly_plans (id, month_key, cycle_start, cycle_end, locked, currency, savings_target_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          plan.id,
+          plan.month,
+          plan.cycleStart || null,
+          plan.cycleEnd || null,
+          Boolean(plan.locked),
+          plan.currency ?? 'INR',
+          toDbAmount(plan.savingsTarget ?? 0),
+        ],
+      );
+      for (const budget of plan.budgets ?? []) {
+        await runQuery(
+          client,
+          `INSERT INTO monthly_plan_budgets (plan_id, group_id, planned_cents, actual_cents)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            plan.id,
+            budget.groupId,
+            toDbAmount(budget.planned ?? 0),
+            toDbAmount(budget.actual ?? 0),
+          ],
+        );
+      }
+    }
+
+    await Promise.all(
+      expenses.map((expense) =>
+        runQuery(
+          client,
+          `INSERT INTO expenses
+             (id, label, amount_cents, entry_type, group_id, cash_book_id, txn_date, note, tags, plan_month_key, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            expense.id,
+            expense.label,
+            toDbAmount(expense.amount ?? 0),
+            expense.type ?? 'expense',
+            expense.groupId,
+            expense.cashBookId,
+            expense.date,
+            expense.note ?? '',
+            expense.tags ?? [],
+            expense.planMonth ?? null,
+            expense.createdAt ? new Date(expense.createdAt) : new Date(),
+            expense.createdAt ? new Date(expense.createdAt) : new Date(),
+          ],
+        ),
+      ),
+    );
+  });
   return {
     cashBooks: cashBooks.length,
     expenseGroups: expenseGroups.length,
@@ -454,49 +781,14 @@ async function importData(datasets = {}) {
   };
 }
 
-async function saveCashBook(payload) {
-  if (!payload?.name) {
-    throw new Error('Cash book name is required');
-  }
-
-  const cashBooks = await store.read('cashBooks');
-  const bookIndex = payload.id ? cashBooks.findIndex((book) => book.id === payload.id) : -1;
-  const normalized = {
-    id: payload.id ?? randomUUID(),
-    name: payload.name.trim(),
-    type: payload.type ?? 'bank',
-    accountNumber: payload.accountNumber ?? '',
-    balance: toAmount(payload.balance ?? 0),
-    currency: payload.currency ?? 'INR',
-    notes: payload.notes ?? '',
-    lastActivity: bookIndex >= 0 ? cashBooks[bookIndex].lastActivity ?? null : null,
-  };
-
-  if (bookIndex >= 0) {
-    cashBooks[bookIndex] = { ...cashBooks[bookIndex], ...normalized };
-  } else {
-    cashBooks.push(normalized);
-  }
-
-  await store.write('cashBooks', cashBooks);
-  return normalized;
-}
-
-async function resetData() {
-  const datasets = ['cashBooks', 'expenseGroups', 'monthlyPlans', 'expenses'];
-  await Promise.all(datasets.map((dataset) => store.write(dataset, [])));
-}
-
-async function exportData() {
-  const datasets = ['cashBooks', 'expenseGroups', 'monthlyPlans', 'expenses'];
-  const entries = await Promise.all(datasets.map(async (dataset) => [dataset, await store.read(dataset)]));
-  return Object.fromEntries(entries);
-}
-
 module.exports = {
   getCashBooks,
   getExpenseGroups,
-  getExpenseGroupById,
+  getExpenseGroupById: async (id) => {
+    if (!id) return null;
+    const { rows } = await runQuery(null, 'SELECT * FROM expense_groups WHERE id = $1', [id]);
+    return rows.length ? mapExpenseGroupRow(rows[0]) : null;
+  },
   getMonthlyPlanById,
   getMonthlyPlans,
   getCurrentPlan,
