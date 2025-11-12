@@ -1,6 +1,6 @@
 import { FC, useEffect, useMemo, useState } from 'react';
-import { getExpenseGroups, getExpenses, getMonthlyPlans } from '../api/budget';
-import type { Expense, ExpenseGroup, MonthlyPlan } from '../api/types';
+import { getCashBooks, getExpenseGroups, getExpenses, getMonthlyPlans } from '../api/budget';
+import type { CashBook, Expense, ExpenseGroup, MonthlyPlan } from '../api/types';
 import { formatCurrency } from '../utils/currency';
 
 const formatMonthLabel = (month: string) => {
@@ -46,6 +46,7 @@ const ReportsPage: FC = () => {
   const todayMonthKey = useMemo(() => todayKey.slice(0, 7), [todayKey]);
 
   const [groups, setGroups] = useState<ExpenseGroup[]>([]);
+  const [cashBooks, setCashBooks] = useState<CashBook[]>([]);
   const [plans, setPlans] = useState<MonthlyPlan[]>([]);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState<number>(-1);
 
@@ -67,13 +68,18 @@ const ReportsPage: FC = () => {
     (async () => {
       try {
         setLoading(true);
-        const [groupResponse, planResponse] = await Promise.all([getExpenseGroups(), getMonthlyPlans()]);
+        const [groupResponse, planResponse, cashBookResponse] = await Promise.all([
+          getExpenseGroups(),
+          getMonthlyPlans(),
+          getCashBooks(),
+        ]);
         if (!mounted) return;
 
         const orderedPlans = [...planResponse].sort((a, b) => (a.month < b.month ? 1 : -1));
 
         setGroups(groupResponse);
         setPlans(orderedPlans);
+        setCashBooks(cashBookResponse);
 
         const inCycleIndex = orderedPlans.findIndex((plan) =>
           isDateWithinCycle(todayKey, plan.cycleStart, plan.cycleEnd, plan.month),
@@ -106,6 +112,22 @@ const ReportsPage: FC = () => {
         return acc;
       }, {}),
     [groups],
+  );
+  const cashOnHand = useMemo(
+    () => cashBooks.reduce((sum, book) => sum + Number(book.balance || 0), 0),
+    [cashBooks],
+  );
+  const cashBookBalances = useMemo(
+    () =>
+      cashBooks
+        .map((book) => ({
+          id: book.id,
+          name: book.name,
+          balance: Number(book.balance || 0),
+          type: book.type ?? '',
+        }))
+        .sort((a, b) => b.balance - a.balance),
+    [cashBooks],
   );
 
   useEffect(() => {
@@ -310,6 +332,29 @@ const ReportsPage: FC = () => {
       };
     });
   }, [actualsByGroup, groupMap, selectedPlan]);
+  const remainingNeeds = useMemo(() => {
+    if (!selectedPlan) return [];
+    return selectedPlan.budgets
+      .map((budget) => {
+        const planned = budget.planned ?? 0;
+        const actual = actualsByGroup[budget.groupId] ?? budget.actual ?? 0;
+        const remaining = planned - actual;
+        return {
+          groupId: budget.groupId,
+          planned,
+          actual,
+          remaining,
+          name: groupMap[budget.groupId]?.name ?? budget.groupId,
+        };
+      })
+      .filter((row) => row.remaining > 0)
+      .sort((a, b) => b.remaining - a.remaining);
+  }, [actualsByGroup, groupMap, selectedPlan]);
+  const totalRemainingNeed = useMemo(
+    () => remainingNeeds.reduce((sum, row) => sum + row.remaining, 0),
+    [remainingNeeds],
+  );
+  const balanceAfterNeeds = useMemo(() => cashOnHand - totalRemainingNeed, [cashOnHand, totalRemainingNeed]);
 
   const canGoPrev = selectedPlanIndex >= 0 && selectedPlanIndex < plans.length - 1;
   const canGoNext = selectedPlanIndex > 0;
@@ -533,6 +578,74 @@ const ReportsPage: FC = () => {
                   </div>
                 ))}
               </div>
+            )}
+          </section>
+
+          <section className="card">
+            <header className="card-header">
+              <h2 className="card-title">Remaining needs</h2>
+            </header>
+            {planLoading ? (
+              <p className="card-subtitle">Calculating remaining budgets…</p>
+            ) : !selectedPlan ? (
+              <p className="card-subtitle">Select a monthly plan to see remaining amounts.</p>
+            ) : remainingNeeds.length ? (
+              <>
+                <div className="stacked-list">
+                  {remainingNeeds.map((row) => (
+                    <article key={row.groupId} className="stacked-item">
+                      <div>
+                        <p className="item-title">{row.name}</p>
+                        <p className="item-meta">
+                          Planned {formatCurrency(row.planned)} · Actual {formatCurrency(row.actual)}
+                        </p>
+                      </div>
+                      <div className="item-value">
+                        <span>{formatCurrency(row.remaining)}</span>
+                        <p className="item-meta">Needed</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="plan-summary">
+                  <div className="plan-summary-item">
+                    <span className="item-meta">Total still needed</span>
+                    <span className="plan-summary-value">{formatCurrency(totalRemainingNeed)}</span>
+                  </div>
+                  <div className="plan-summary-item">
+                    <span className="item-meta">Current cash available</span>
+                    <span className="plan-summary-value">{formatCurrency(cashOnHand)}</span>
+                  </div>
+                  <div className="plan-summary-item">
+                    <span className="item-meta">Balance after needs</span>
+                    <span className="plan-summary-value">{formatCurrency(balanceAfterNeeds)}</span>
+                  </div>
+                </div>
+                <div className="card">
+                  <header className="card-header">
+                    <h3 className="card-title">Cash books</h3>
+                  </header>
+                  {cashBookBalances.length ? (
+                    <div className="stacked-list">
+                      {cashBookBalances.map((book) => (
+                        <article key={book.id} className="stacked-item">
+                          <div>
+                            <p className="item-title">{book.name}</p>
+                            <p className="item-meta">{book.type || 'Account'}</p>
+                          </div>
+                          <div className="item-value">
+                            <span>{formatCurrency(book.balance, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="card-subtitle">No cash books available yet.</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="card-subtitle">All groups have met or exceeded their planned amounts.</p>
             )}
           </section>
         </>
