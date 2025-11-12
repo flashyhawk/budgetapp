@@ -120,6 +120,14 @@
   opacity: 0.8;
 }
 
+.sidebar-version {
+  margin-top: 8px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
 .main-panel {
   display: flex;
   flex-direction: column;

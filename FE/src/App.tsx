@@ -51,6 +51,8 @@ const pages: PageConfig[] = [
   { id: 'data-import', label: 'Data Import', path: '/data-import', element: ImportDataPage },
 ];
 
+const APP_VERSION = 'v1.1.0';
+
 const App: FC = () => {
   const location = useLocation();
   const prefersDesktop = typeof window !== 'undefined' ? window.innerWidth > 900 : true;
@@ -177,6 +179,9 @@ const App: FC = () => {
             >
               {exporting ? 'Preparing...' : 'Download data (4 files)'}
             </button>
+            <p className="sidebar-version" aria-label="Application version">
+              Version {APP_VERSION}
+            </p>
           </div>
         </aside>
 
